@@ -7,3 +7,4 @@ celery_app = Celery(
     backend=os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/2"),
 )
 celery_app.conf.task_routes = {"app.tasks.*": {"queue": "drought"}}
+celery_app.conf.broker_connection_retry_on_startup = True

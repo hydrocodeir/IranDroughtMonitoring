@@ -1,8 +1,10 @@
+import time
 from pathlib import Path
 import geopandas as gpd
 import pandas as pd
 from shapely.geometry import Polygon, MultiPolygon
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from geoalchemy2.shape import from_shape
 
 from .database import SessionLocal, engine
@@ -15,10 +17,20 @@ TS_PATH = ROOT / "data" / "simulated_timeseries.csv"
 LEVELS = ["province", "county", "study_area", "level1", "level2", "level3"]
 
 
-def create_tables():
-    with engine.begin() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
-    Base.metadata.create_all(bind=engine)
+def create_tables_with_retry(max_retries: int = 20, delay_seconds: float = 2.0):
+    last_error = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with engine.begin() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS postgis"))
+            Base.metadata.create_all(bind=engine)
+            return
+        except OperationalError as exc:
+            last_error = exc
+            if attempt == max_retries:
+                break
+            time.sleep(delay_seconds)
+    raise last_error
 
 
 def _subregion_name(base: str, level: str, idx: int) -> str:
@@ -26,7 +38,7 @@ def _subregion_name(base: str, level: str, idx: int) -> str:
 
 
 def seed_regions_and_timeseries():
-    create_tables()
+    create_tables_with_retry()
     db = SessionLocal()
     try:
         if db.query(Region).count() > 0:
