@@ -14,6 +14,7 @@ const dateEl = document.getElementById('date');
 const panelEl = document.getElementById('insightPanel');
 const closeBtn = document.getElementById('closePanel');
 const monthStripEl = document.getElementById('monthStrip');
+const valueBoxEl = document.getElementById('valueBox');
 
 const droughtColors = {
   'D4': '#7f1d1d',
@@ -22,6 +23,15 @@ const droughtColors = {
   'D1': '#fbbf24',
   'D0': '#fde047',
   'Normal/Wet': '#86efac'
+};
+
+const severityLong = {
+  'Normal/Wet': 'Normal/Wet',
+  'D0': 'D0 - Abnormally Dry',
+  'D1': 'D1 - Moderate Drought',
+  'D2': 'D2 - Severe Drought',
+  'D3': 'D3 - Extreme Drought',
+  'D4': 'D4 - Exceptional Drought'
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
@@ -35,7 +45,7 @@ function addMonth(yyyymm, delta) {
 function toMonthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
   const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return `${labels[m - 1]} ${y}`;
+  return { month: labels[m - 1], year: y };
 }
 
 function toISODate(yyyymm) {
@@ -102,11 +112,13 @@ function getTrendLine(values) {
 
 function buildMonthStrip(centerMonth) {
   monthStripEl.innerHTML = '';
-  for (let i = -9; i <= 9; i += 1) {
+  for (let i = -18; i <= 18; i += 1) {
     const m = addMonth(centerMonth, i);
+    const { month, year } = toMonthLabel(m);
     const btn = document.createElement('button');
-    btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
-    btn.textContent = toMonthLabel(m);
+    const isPred = m >= centerMonth;
+    btn.className = `month-chip ${m === centerMonth ? 'active' : ''} ${isPred ? 'predicted' : ''}`;
+    btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
       dateEl.value = m;
       onDateChanged();
@@ -120,12 +132,21 @@ function setPanelOpen(open) {
   panelEl.setAttribute('aria-hidden', String(!open));
 }
 
+function applySeverityStyle(sev) {
+  valueBoxEl.classList.remove('sev-Normal/Wet', 'sev-D0', 'sev-D1', 'sev-D2', 'sev-D3', 'sev-D4');
+  const key = (sev || '').replace('/', '\\/');
+  const className = `sev-${key}`;
+  valueBoxEl.classList.add(className);
+}
+
 function renderKPI(kpi, featureName, indexLabel) {
+  const sev = kpi.severity || '-';
   document.getElementById('panelTitle').textContent = `Drought - ${dateEl.value}`;
   document.getElementById('panelSubtitle').textContent = `Selected Region: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `${indexLabel.toUpperCase()} Value`;
   document.getElementById('mainMetricValue').textContent = Number(kpi.latest ?? 0).toFixed(2);
-  document.getElementById('severityBadge').textContent = kpi.severity || '-';
+  document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
+  applySeverityStyle(sev);
 
   document.getElementById('tauVal').textContent = Number(kpi.trend?.tau ?? 0).toFixed(3);
   document.getElementById('pVal').textContent = (kpi.trend?.p_value ?? '-').toString();
@@ -147,7 +168,6 @@ function renderChart(ts, indexLabel) {
     afterDatasetsDraw(chartRef) {
       const { ctx, chartArea, scales: { x } } = chartRef;
       if (!x || !chartArea) return;
-
       const drawV = (idx, color, dash = [5, 4]) => {
         if (idx < 0 || idx >= labels.length) return;
         const xPos = x.getPixelForValue(idx);
@@ -161,11 +181,8 @@ function renderChart(ts, indexLabel) {
         ctx.stroke();
         ctx.restore();
       };
-
       drawV(lastIdx, '#2563eb', [3, 3]);
-      if (selectedIdx !== -1 && selectedIdx !== lastIdx) {
-        drawV(selectedIdx, '#ef4444', [6, 4]);
-      }
+      if (selectedIdx !== -1 && selectedIdx !== lastIdx) drawV(selectedIdx, '#ef4444', [6, 4]);
     }
   };
 
@@ -175,50 +192,43 @@ function renderChart(ts, indexLabel) {
     data: {
       labels,
       datasets: [
-        {
-          label: indexLabel.toUpperCase(),
-          data: values,
-          borderColor: '#38bdf8',
-          backgroundColor: 'rgba(56,189,248,.18)',
-          fill: true,
-          tension: .24,
-          pointRadius: 0
-        },
-        {
-          label: 'Trend',
-          data: trendData,
-          borderColor: '#ef4444',
-          borderWidth: 1.5,
-          pointRadius: 0,
-          tension: 0,
-          fill: false
-        }
+        { label: indexLabel.toUpperCase(), data: values, borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,.18)', fill: true, tension: .24, pointRadius: 0 },
+        { label: 'Trend', data: trendData, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false }
       ]
     },
-    options: {
-      maintainAspectRatio: false,
-      plugins: { legend: { display: true } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 6 } },
-        y: { grid: { color: '#e2e8f0' } }
-      }
-    },
+    options: { maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { grid: { color: '#e2e8f0' } } } },
     plugins: [verticalLinePlugin]
   });
 }
 
 function addMapLegend() {
-  const legend = L.control({ position: 'topleft' });
+  const legend = L.control({ position: 'bottomright' });
   legend.onAdd = () => {
     const div = L.DomUtil.create('div', 'map-legend');
+    div.id = 'mapLegendBox';
     const items = [
-      ['Normal/Wet', '#86efac'], ['D0', '#fde047'], ['D1', '#fbbf24'],
-      ['D2', '#f97316'], ['D3', '#dc2626'], ['D4', '#7f1d1d']
+      ['Normal/Wet', '#86efac'], ['D0 - Abnormally Dry', '#fde047'], ['D1 - Moderate Drought', '#fbbf24'],
+      ['D2 - Severe Drought', '#f97316'], ['D3 - Extreme Drought', '#dc2626'], ['D4 - Exceptional Drought', '#7f1d1d']
     ];
-    div.innerHTML = `<h6>راهنمای شدت خشکسالی</h6>${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[1]}"></span>${i[0]}</div>`).join('')}`;
+    div.innerHTML = `
+      <div class="head">
+        <button id="legendToggle" class="toggle">‹</button>
+        <h6>Drought Severity</h6>
+      </div>
+      ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[1]}"></span><span class="label">${i[0]}</span></div>`).join('')}`;
     return div;
   };
   legend.addTo(map);
+
+  setTimeout(() => {
+    const toggle = document.getElementById('legendToggle');
+    const legendBox = document.getElementById('mapLegendBox');
+    if (!toggle || !legendBox) return;
+    toggle.addEventListener('click', () => {
+      legendBox.classList.toggle('compact');
+      toggle.textContent = legendBox.classList.contains('compact') ? '›' : '‹';
+    });
+  }, 100);
 }
 
 async function loadMap() {
@@ -226,7 +236,6 @@ async function loadMap() {
   const index = indexEl.value;
   const date = dateEl.value;
   let data;
-
   try {
     data = await fetchJson(`${API}/mapdata?level=${level}&index=${index}&date=${date}`);
   } catch (_) {
@@ -244,9 +253,7 @@ async function loadMap() {
     }
   }).addTo(map);
 
-  if (data.features?.length) {
-    map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
-  }
+  if (data.features?.length) map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
 }
 
 async function onRegionClick(feature) {
@@ -267,27 +274,12 @@ async function onRegionClick(feature) {
       ]);
     } catch (_) {
       const val = Number(feature?.properties?.value ?? 0);
-      kpi = {
-        latest: val,
-        min: val - 1,
-        max: val + 1,
-        mean: val,
-        severity: feature?.properties?.severity || '-',
-        trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' }
-      };
+      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || '-', trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' } };
       ts = fallbackTimeSeries(val);
     }
 
-    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : {
-      latest: Number(feature?.properties?.value ?? 0),
-      min: Number(feature?.properties?.value ?? 0) - 1,
-      max: Number(feature?.properties?.value ?? 0) + 1,
-      mean: Number(feature?.properties?.value ?? 0),
-      severity: feature?.properties?.severity || '-',
-      trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' }
-    };
+    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || '-', trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' } };
 
-    // requirement #1: value must update on date change
     safeKpi.latest = Number(feature?.properties?.value ?? safeKpi.latest ?? 0);
     safeKpi.severity = feature?.properties?.severity || safeKpi.severity;
 
@@ -317,14 +309,14 @@ async function onDateChanged() {
 
 function setupEvents() {
   document.getElementById('reloadTop').addEventListener('click', onDateChanged);
-  indexEl.addEventListener('change', async () => {
-    await onDateChanged();
-  });
+  indexEl.addEventListener('change', async () => { await onDateChanged(); });
   levelEl.addEventListener('change', onDateChanged);
   dateEl.addEventListener('change', onDateChanged);
 
   document.getElementById('prevMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
   document.getElementById('nextMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+  document.getElementById('stripPrev').addEventListener('click', () => monthStripEl.scrollBy({ left: -240, behavior: 'smooth' }));
+  document.getElementById('stripNext').addEventListener('click', () => monthStripEl.scrollBy({ left: 240, behavior: 'smooth' }));
 
   closeBtn.addEventListener('click', () => setPanelOpen(false));
 

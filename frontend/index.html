@@ -37,6 +37,7 @@
           <option value="temp">میانگین دما</option>
         </select>
       </div>
+      <div class="timeline-meta"><span class="obs">Observed</span><span class="pred">Predicted</span></div>
     </div>
 
     <aside id="insightPanel" class="insight-panel" aria-hidden="true">
@@ -48,7 +49,7 @@
         </div>
       </div>
 
-      <section class="value-box mt-3">
+      <section id="valueBox" class="value-box mt-3">
         <div class="d-flex justify-content-between align-items-center mb-1">
           <span id="mainMetricLabel">SPI-3 Value</span>
           <span id="severityBadge" class="severity-badge">-</span>
@@ -88,7 +89,12 @@
           </select>
         </div>
       </div>
-      <div id="monthStrip" class="month-strip"></div>
+      <div class="month-strip-shell">
+        <button id="stripPrev" class="strip-nav">‹‹</button>
+        <div id="monthStrip" class="month-strip"></div>
+        <button id="stripNext" class="strip-nav">››</button>
+      </div>
+      <div class="timeline-meta"><span class="obs">Observed</span><span class="pred">Predicted</span></div>
     </div>
   </main>
 
