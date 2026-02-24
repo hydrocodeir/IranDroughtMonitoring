@@ -11,7 +11,7 @@ class Region(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, index=True)
     level = Column(String, nullable=False, index=True)
-    geom = Column(Geometry("MULTIPOLYGON", srid=4326), nullable=False)
+    geom = Column(Geometry("MULTIPOLYGON", srid=4326, spatial_index=False), nullable=False)
 
     time_series = relationship("TimeSeries", back_populates="region", cascade="all, delete-orphan")
 
