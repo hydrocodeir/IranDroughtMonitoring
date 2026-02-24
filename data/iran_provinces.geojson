@@ -1,0 +1,11 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {"type": "Feature", "properties": {"name": "Tehran", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[50.9,35.3],[52.0,35.3],[52.0,36.2],[50.9,36.2],[50.9,35.3]]]}},
+    {"type": "Feature", "properties": {"name": "Isfahan", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[50.1,31.4],[52.7,31.4],[52.7,33.8],[50.1,33.8],[50.1,31.4]]]}},
+    {"type": "Feature", "properties": {"name": "Fars", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[51.3,27.0],[54.4,27.0],[54.4,30.7],[51.3,30.7],[51.3,27.0]]]}},
+    {"type": "Feature", "properties": {"name": "Khorasan Razavi", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[57.0,34.1],[60.8,34.1],[60.8,37.8],[57.0,37.8],[57.0,34.1]]]}},
+    {"type": "Feature", "properties": {"name": "Khuzestan", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[47.1,30.0],[49.9,30.0],[49.9,32.9],[47.1,32.9],[47.1,30.0]]]}},
+    {"type": "Feature", "properties": {"name": "Mazandaran", "level": "province"}, "geometry": {"type": "Polygon", "coordinates": [[[51.0,35.8],[54.0,35.8],[54.0,37.2],[51.0,37.2],[51.0,35.8]]]}}
+  ]
+}
