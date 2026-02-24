@@ -13,6 +13,7 @@ A high-performance, Dockerized drought monitoring dashboard for Iran, inspired b
 - 10 years (120 months) simulated monthly climate/index data loaded from `data/simulated_timeseries.csv`.
 - Choropleth drought classes (`D0`..`D4`) from SPI/SPEI thresholds.
 - Region click interaction with KPI and 10-year time-series chart.
+- رابط کاربری مدرن RTL با فونت فارسی Vazirmatn، پنل کشویی از سمت چپ و نوار کنترل تاریخ/محدوده در پایین نقشه.
 - Redis cache on regions/map/timeseries/KPI endpoints.
 - Celery task support for async KPI calculations.
 - APScheduler monthly trigger for background recompute workflows.
