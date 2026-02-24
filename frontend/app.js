@@ -171,16 +171,24 @@ function droughtUpperBound(value) {
   return -2.0;
 }
 
-function droughtFillColor(value) {
-  const sev = classify(value);
+function thresholdSeverityByBound(bound) {
+  if (bound >= 0) return 'Normal/Wet';
+  if (bound >= -0.5) return 'D0';
+  if (bound >= -0.8) return 'D1';
+  if (bound >= -1.3) return 'D2';
+  if (bound >= -1.6) return 'D3';
+  return 'D4';
+}
+
+function droughtFillColorByBound(bound) {
+  const sev = thresholdSeverityByBound(bound);
   const base = severityColor(sev);
-  const alpha = sev === 'Normal/Wet' ? 0.28 : 0.38;
   const rgb = base.startsWith('#') ? base : '#60a5fa';
   const hex = rgb.replace('#', '');
   const r = parseInt(hex.substring(0, 2), 16);
   const g = parseInt(hex.substring(2, 4), 16);
   const b = parseInt(hex.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  return `rgba(${r}, ${g}, ${b}, 0.40)`;
 }
 
 function drawThresholdGuides(chartRef) {
@@ -206,6 +214,7 @@ function drawAreaBetweenSeriesAndThreshold(chartRef, values) {
   const { ctx } = chartRef;
   if (!y || !meta?.data?.length || values.length < 2) return;
 
+  // Fill ONLY between line and its local threshold bound (piecewise), not full row bands.
   for (let i = 1; i < meta.data.length; i += 1) {
     const p0 = meta.data[i - 1];
     const p1 = meta.data[i];
@@ -213,22 +222,59 @@ function drawAreaBetweenSeriesAndThreshold(chartRef, values) {
     const v1 = Number(values[i]);
     if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
 
-    const vm = (v0 + v1) / 2;
-    const bound = droughtUpperBound(vm);
-    const by0 = y.getPixelForValue(bound);
-    const by1 = y.getPixelForValue(bound);
+    const steps = 10;
+    for (let j = 0; j < steps; j += 1) {
+      const t0 = j / steps;
+      const t1 = (j + 1) / steps;
+      const x0 = p0.x + (p1.x - p0.x) * t0;
+      const x1 = p0.x + (p1.x - p0.x) * t1;
+      const vSeg0 = v0 + (v1 - v0) * t0;
+      const vSeg1 = v0 + (v1 - v0) * t1;
+      const bound0 = droughtUpperBound(vSeg0);
+      const bound1 = droughtUpperBound(vSeg1);
+      const boundMid = droughtUpperBound((vSeg0 + vSeg1) / 2);
 
-    ctx.save();
-    ctx.fillStyle = droughtFillColor(vm);
-    ctx.beginPath();
-    ctx.moveTo(p0.x, p0.y);
-    ctx.lineTo(p1.x, p1.y);
-    ctx.lineTo(p1.x, by1);
-    ctx.lineTo(p0.x, by0);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
+      const yLine0 = y.getPixelForValue(vSeg0);
+      const yLine1 = y.getPixelForValue(vSeg1);
+      const yBound0 = y.getPixelForValue(bound0);
+      const yBound1 = y.getPixelForValue(bound1);
+
+      ctx.save();
+      ctx.fillStyle = droughtFillColorByBound(boundMid);
+      ctx.beginPath();
+      ctx.moveTo(x0, yLine0);
+      ctx.lineTo(x1, yLine1);
+      ctx.lineTo(x1, yBound1);
+      ctx.lineTo(x0, yBound0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
   }
+}
+
+function drawThresholdLabels(chartRef) {
+  const y = chartRef.scales.y;
+  const { ctx, chartArea } = chartRef;
+  if (!y || !chartArea) return;
+
+  const labels = [
+    { text: 'D0', val: -0.5 },
+    { text: 'D1', val: -0.8 },
+    { text: 'D2', val: -1.3 },
+    { text: 'D3', val: -1.6 },
+    { text: 'D4', val: -2.0 },
+  ];
+
+  ctx.save();
+  ctx.fillStyle = '#374151';
+  ctx.font = '12px Vazirmatn, sans-serif';
+  ctx.textBaseline = 'middle';
+  labels.forEach(l => {
+    const yy = y.getPixelForValue(l.val);
+    ctx.fillText(l.text, chartArea.right + 8, yy);
+  });
+  ctx.restore();
 }
 
 function renderChart(ts, indexLabel) {
@@ -263,6 +309,7 @@ function renderChart(ts, indexLabel) {
       };
       drawV(lastIdx, '#2563eb', [3, 3]);
       if (selectedIdx !== -1 && selectedIdx !== lastIdx) drawV(selectedIdx, '#ef4444', [6, 4]);
+      drawThresholdLabels(chartRef);
     }
   };
 
@@ -295,6 +342,7 @@ function renderChart(ts, indexLabel) {
     },
     options: {
       maintainAspectRatio: false,
+      layout: { padding: { right: 32 } },
       plugins: { legend: { display: true } },
       scales: {
         x: { ticks: { maxTicksLimit: 6 } },
