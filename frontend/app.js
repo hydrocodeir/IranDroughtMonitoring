@@ -162,37 +162,73 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
 }
 
-function drawDroughtBands(chartRef) {
+function droughtUpperBound(value) {
+  if (value >= -0.5) return 0.0;
+  if (value >= -0.8) return -0.5;
+  if (value >= -1.3) return -0.8;
+  if (value >= -1.6) return -1.3;
+  if (value >= -2.0) return -1.6;
+  return -2.0;
+}
+
+function droughtFillColor(value) {
+  const sev = classify(value);
+  const base = severityColor(sev);
+  const alpha = sev === 'Normal/Wet' ? 0.28 : 0.38;
+  const rgb = base.startsWith('#') ? base : '#60a5fa';
+  const hex = rgb.replace('#', '');
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function drawThresholdGuides(chartRef) {
   const y = chartRef.scales.y;
   const { ctx, chartArea } = chartRef;
   if (!y || !chartArea) return;
-  const bands = [
-    { from: 0, to: -0.5, color: 'rgba(134,239,172,0.35)' },
-    { from: -0.5, to: -0.8, color: 'rgba(253,224,71,0.35)' },
-    { from: -0.8, to: -1.3, color: 'rgba(251,191,36,0.35)' },
-    { from: -1.3, to: -1.6, color: 'rgba(249,115,22,0.35)' },
-    { from: -1.6, to: -2.0, color: 'rgba(220,38,38,0.35)' },
-    { from: -2.0, to: -3.0, color: 'rgba(127,29,29,0.35)' }
-  ];
-
-  ctx.save();
-  bands.forEach(b => {
-    const y1 = y.getPixelForValue(b.from);
-    const y2 = y.getPixelForValue(b.to);
-    ctx.fillStyle = b.color;
-    ctx.fillRect(chartArea.left, Math.min(y1, y2), chartArea.right - chartArea.left, Math.abs(y2 - y1));
-  });
-
   [-0.5, -0.8, -1.3, -1.6, -2.0].forEach(v => {
     const py = y.getPixelForValue(v);
-    ctx.strokeStyle = 'rgba(107,114,128,.5)';
+    ctx.save();
+    ctx.strokeStyle = 'rgba(107,114,128,.55)';
     ctx.setLineDash([4, 4]);
     ctx.beginPath();
     ctx.moveTo(chartArea.left, py);
     ctx.lineTo(chartArea.right, py);
     ctx.stroke();
+    ctx.restore();
   });
-  ctx.restore();
+}
+
+function drawAreaBetweenSeriesAndThreshold(chartRef, values) {
+  const y = chartRef.scales.y;
+  const meta = chartRef.getDatasetMeta(0);
+  const { ctx } = chartRef;
+  if (!y || !meta?.data?.length || values.length < 2) return;
+
+  for (let i = 1; i < meta.data.length; i += 1) {
+    const p0 = meta.data[i - 1];
+    const p1 = meta.data[i];
+    const v0 = Number(values[i - 1]);
+    const v1 = Number(values[i]);
+    if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+
+    const vm = (v0 + v1) / 2;
+    const bound = droughtUpperBound(vm);
+    const by0 = y.getPixelForValue(bound);
+    const by1 = y.getPixelForValue(bound);
+
+    ctx.save();
+    ctx.fillStyle = droughtFillColor(vm);
+    ctx.beginPath();
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.lineTo(p1.x, by1);
+    ctx.lineTo(p0.x, by0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 function renderChart(ts, indexLabel) {
@@ -205,7 +241,10 @@ function renderChart(ts, indexLabel) {
 
   const customPlugin = {
     id: 'bandsAndVLines',
-    beforeDatasetsDraw(chartRef) { drawDroughtBands(chartRef); },
+    beforeDatasetsDraw(chartRef) {
+      drawAreaBetweenSeriesAndThreshold(chartRef, values);
+      drawThresholdGuides(chartRef);
+    },
     afterDatasetsDraw(chartRef) {
       const { ctx, chartArea, scales: { x } } = chartRef;
       if (!x || !chartArea) return;
