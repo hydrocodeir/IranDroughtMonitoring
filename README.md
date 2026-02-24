@@ -4,6 +4,7 @@ A high-performance, Dockerized drought monitoring dashboard for Iran, inspired b
 
 ## Stack
 - **Backend:** FastAPI, GeoPandas, Rasterio, Xarray, NumPy, Pandas, PostgreSQL/PostGIS, Redis, Celery, APScheduler.
+- **Python env/tooling:** `uv` virtual environment for backend dependency installation in container builds.
 - **Frontend:** HTML5, CSS3, Bootstrap 5 RTL, HTMX, Vanilla JS, Leaflet, Chart.js.
 - **Containers:** Docker + Docker Compose.
 
