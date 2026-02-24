@@ -54,6 +54,19 @@ function fallbackGeoJSON() {
   };
 }
 
+function fallbackTimeSeries(baseValue = -0.5) {
+  return Array.from({ length: 24 }).map((_, i) => ({
+    date: `2024-${String((i % 12) + 1).padStart(2, '0')}-01`,
+    value: (Math.sin(i / 3) - 0.8) + (Math.random() * 0.5) + baseValue * 0.05
+  }));
+}
+
+function normalizeTimeseries(ts, baseValue = -0.5) {
+  if (!Array.isArray(ts) || ts.length === 0) return fallbackTimeSeries(baseValue);
+  const ok = ts.filter(d => d && d.date && Number.isFinite(Number(d.value))).map(d => ({ date: d.date, value: Number(d.value) }));
+  return ok.length ? ok : fallbackTimeSeries(baseValue);
+}
+
 async function loadMap() {
   const level = levelEl.value;
   const index = indexEl.value;
@@ -101,6 +114,10 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
 }
 
+function renderLoading(featureName, indexName) {
+  renderKPI({ latest: featureName ? 0 : 0, severity: 'Loading...', min: 0, max: 0, mean: 0, trend: {} }, featureName, indexName);
+}
+
 function renderChart(ts, indexLabel) {
   const labels = ts.map(d => d.date);
   const values = ts.map(d => d.value);
@@ -132,33 +149,53 @@ function renderChart(ts, indexLabel) {
 }
 
 async function onRegionClick(feature) {
-  selectedFeature = feature;
-  const regionId = feature.properties.id;
-  const indexName = indexEl.value;
-
-  let kpi;
-  let ts;
   try {
-    [kpi, ts] = await Promise.all([
-      fetchJson(`${API}/kpi?region_id=${regionId}&index=${indexName}`),
-      fetchJson(`${API}/timeseries?region_id=${regionId}&index=${indexName}`)
-    ]);
-  } catch (_) {
-    const val = Number(feature.properties.value ?? 0);
-    kpi = {
-      latest: val,
-      min: val - 1,
-      max: val + 1,
-      mean: val,
-      severity: feature.properties.severity || '-',
-      trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' }
-    };
-    ts = Array.from({ length: 24 }).map((_, i) => ({ date: `2024-${String((i % 12) + 1).padStart(2, '0')}-01`, value: (Math.sin(i / 3) - 0.8) + (Math.random() * 0.5) }));
-  }
+    selectedFeature = feature;
+    const regionId = feature?.properties?.id;
+    const indexName = indexEl.value;
+    const featureName = feature?.properties?.name || 'Region';
 
-  renderKPI(kpi, feature.properties.name, indexName);
-  renderChart(ts, indexName);
-  setPanelOpen(true);
+    setPanelOpen(true); // open immediately so user always sees modal
+    renderLoading(featureName, indexName);
+
+    let kpi;
+    let ts;
+    try {
+      [kpi, ts] = await Promise.all([
+        fetchJson(`${API}/kpi?region_id=${regionId}&index=${indexName}`),
+        fetchJson(`${API}/timeseries?region_id=${regionId}&index=${indexName}`)
+      ]);
+    } catch (_) {
+      const val = Number(feature?.properties?.value ?? 0);
+      kpi = {
+        latest: val,
+        min: val - 1,
+        max: val + 1,
+        mean: val,
+        severity: feature?.properties?.severity || '-',
+        trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' }
+      };
+      ts = fallbackTimeSeries(val);
+    }
+
+    const safeKpi = (kpi && typeof kpi === 'object') ? kpi : {};
+    if (safeKpi.error) {
+      const val = Number(feature?.properties?.value ?? 0);
+      safeKpi.latest = val;
+      safeKpi.min = val - 1;
+      safeKpi.max = val + 1;
+      safeKpi.mean = val;
+      safeKpi.severity = feature?.properties?.severity || '-';
+      safeKpi.trend = { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' };
+    }
+
+    const safeTs = normalizeTimeseries(ts, Number(feature?.properties?.value ?? 0));
+    renderKPI(safeKpi, featureName, indexName);
+    renderChart(safeTs, indexName);
+  } catch (err) {
+    console.error('onRegionClick error:', err);
+    setPanelOpen(true);
+  }
 }
 
 function setupEvents() {
