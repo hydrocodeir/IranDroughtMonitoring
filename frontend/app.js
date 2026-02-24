@@ -48,9 +48,7 @@ function toMonthLabel(yyyymm) {
   return { month: labels[m - 1], year: y };
 }
 
-function toISODate(yyyymm) {
-  return `${yyyymm}-01`;
-}
+function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
 async function fetchJson(url) {
   const res = await fetch(url);
@@ -58,33 +56,40 @@ async function fetchJson(url) {
   return res.json();
 }
 
+function classify(value) {
+  if (value >= 0) return 'Normal/Wet';
+  if (value >= -0.8) return 'D0';
+  if (value >= -1.3) return 'D1';
+  if (value >= -1.6) return 'D2';
+  if (value >= -2.0) return 'D3';
+  return 'D4';
+}
+
 function fallbackGeoJSON(dateRef = dateEl.value) {
-  const month = Number((dateRef || "2020-01").split("-")[1] || 1);
+  const month = Number((dateRef || '2020-01').split('-')[1] || 1);
   const tehranValue = -0.9 + (month * 0.03);
   const isfahanValue = -1.3 + (month * 0.02);
-  const tehranSeverity = tehranValue >= -0.8 ? "D0" : "D1";
-  const isfahanSeverity = isfahanValue >= -1.3 ? "D1" : "D2";
   return {
-    type: "FeatureCollection",
+    type: 'FeatureCollection',
     features: [
       {
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: [[[50.9,35.3],[52.0,35.3],[52.0,36.2],[50.9,36.2],[50.9,35.3]]] },
-        properties: { id: 1, name: "Tehran", value: Number(tehranValue.toFixed(2)), severity: tehranSeverity }
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [[[50.9,35.3],[52.0,35.3],[52.0,36.2],[50.9,36.2],[50.9,35.3]]] },
+        properties: { id: 1, name: 'Tehran', value: Number(tehranValue.toFixed(2)), severity: classify(tehranValue) }
       },
       {
-        type: "Feature",
-        geometry: { type: "Polygon", coordinates: [[[50.1,31.4],[52.7,31.4],[52.7,33.8],[50.1,33.8],[50.1,31.4]]] },
-        properties: { id: 2, name: "Isfahan", value: Number(isfahanValue.toFixed(2)), severity: isfahanSeverity }
+        type: 'Feature',
+        geometry: { type: 'Polygon', coordinates: [[[50.1,31.4],[52.7,31.4],[52.7,33.8],[50.1,33.8],[50.1,31.4]]] },
+        properties: { id: 2, name: 'Isfahan', value: Number(isfahanValue.toFixed(2)), severity: classify(isfahanValue) }
       }
     ]
   };
 }
 
 function fallbackTimeSeries(baseValue = -0.5) {
-  return Array.from({ length: 24 }).map((_, i) => ({
-    date: `2024-${String((i % 12) + 1).padStart(2, '0')}-01`,
-    value: (Math.sin(i / 3) - 0.8) + (Math.random() * 0.5) + baseValue * 0.05
+  return Array.from({ length: 48 }).map((_, i) => ({
+    date: `2022-${String((i % 12) + 1).padStart(2, '0')}-01`,
+    value: (Math.sin(i / 3) - 0.7) + (Math.random() * 0.45) + baseValue * 0.05
   }));
 }
 
@@ -133,10 +138,12 @@ function setPanelOpen(open) {
 }
 
 function applySeverityStyle(sev) {
-  valueBoxEl.classList.remove('sev-Normal/Wet', 'sev-D0', 'sev-D1', 'sev-D2', 'sev-D3', 'sev-D4');
-  const key = (sev || '').replace('/', '\\/');
-  const className = `sev-${key}`;
-  valueBoxEl.classList.add(className);
+  const map = { 'Normal/Wet': 'NormalWet', 'D0': 'D0', 'D1': 'D1', 'D2': 'D2', 'D3': 'D3', 'D4': 'D4' };
+  ['NormalWet','D0','D1','D2','D3','D4'].forEach(k => valueBoxEl.classList.remove(`sev-${k}`));
+  const key = map[sev] || 'D0';
+  valueBoxEl.classList.add(`sev-${key}`);
+  const c = severityColor(sev);
+  valueBoxEl.style.borderColor = c;
 }
 
 function renderKPI(kpi, featureName, indexLabel) {
@@ -155,6 +162,39 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
 }
 
+function drawDroughtBands(chartRef) {
+  const y = chartRef.scales.y;
+  const { ctx, chartArea } = chartRef;
+  if (!y || !chartArea) return;
+  const bands = [
+    { from: 0, to: -0.5, color: 'rgba(134,239,172,0.35)' },
+    { from: -0.5, to: -0.8, color: 'rgba(253,224,71,0.35)' },
+    { from: -0.8, to: -1.3, color: 'rgba(251,191,36,0.35)' },
+    { from: -1.3, to: -1.6, color: 'rgba(249,115,22,0.35)' },
+    { from: -1.6, to: -2.0, color: 'rgba(220,38,38,0.35)' },
+    { from: -2.0, to: -3.0, color: 'rgba(127,29,29,0.35)' }
+  ];
+
+  ctx.save();
+  bands.forEach(b => {
+    const y1 = y.getPixelForValue(b.from);
+    const y2 = y.getPixelForValue(b.to);
+    ctx.fillStyle = b.color;
+    ctx.fillRect(chartArea.left, Math.min(y1, y2), chartArea.right - chartArea.left, Math.abs(y2 - y1));
+  });
+
+  [-0.5, -0.8, -1.3, -1.6, -2.0].forEach(v => {
+    const py = y.getPixelForValue(v);
+    ctx.strokeStyle = 'rgba(107,114,128,.5)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(chartArea.left, py);
+    ctx.lineTo(chartArea.right, py);
+    ctx.stroke();
+  });
+  ctx.restore();
+}
+
 function renderChart(ts, indexLabel) {
   const labels = ts.map(d => d.date);
   const values = ts.map(d => d.value);
@@ -163,8 +203,9 @@ function renderChart(ts, indexLabel) {
   const selectedIdx = labels.indexOf(selectedDate);
   const lastIdx = labels.length - 1;
 
-  const verticalLinePlugin = {
-    id: 'verticalLinePlugin',
+  const customPlugin = {
+    id: 'bandsAndVLines',
+    beforeDatasetsDraw(chartRef) { drawDroughtBands(chartRef); },
     afterDatasetsDraw(chartRef) {
       const { ctx, chartArea, scales: { x } } = chartRef;
       if (!x || !chartArea) return;
@@ -174,7 +215,7 @@ function renderChart(ts, indexLabel) {
         ctx.save();
         ctx.setLineDash(dash);
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.4;
         ctx.beginPath();
         ctx.moveTo(xPos, chartArea.top);
         ctx.lineTo(xPos, chartArea.bottom);
@@ -192,12 +233,36 @@ function renderChart(ts, indexLabel) {
     data: {
       labels,
       datasets: [
-        { label: indexLabel.toUpperCase(), data: values, borderColor: '#38bdf8', backgroundColor: 'rgba(56,189,248,.18)', fill: true, tension: .24, pointRadius: 0 },
-        { label: 'Trend', data: trendData, borderColor: '#ef4444', borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false }
+        {
+          label: indexLabel.toUpperCase(),
+          data: values,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: .2,
+          segment: {
+            borderColor: ctx => severityColor(classify(ctx.p1.parsed.y))
+          }
+        },
+        {
+          label: 'Trend',
+          data: trendData,
+          borderColor: '#ef4444',
+          borderWidth: 1.4,
+          pointRadius: 0,
+          tension: 0,
+          fill: false
+        }
       ]
     },
-    options: { maintainAspectRatio: false, plugins: { legend: { display: true } }, scales: { x: { ticks: { maxTicksLimit: 6 } }, y: { grid: { color: '#e2e8f0' } } } },
-    plugins: [verticalLinePlugin]
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { display: true } },
+      scales: {
+        x: { ticks: { maxTicksLimit: 6 } },
+        y: { min: -3, max: 2.5, grid: { color: '#e2e8f0' } }
+      }
+    },
+    plugins: [customPlugin]
   });
 }
 
@@ -207,15 +272,19 @@ function addMapLegend() {
     const div = L.DomUtil.create('div', 'map-legend');
     div.id = 'mapLegendBox';
     const items = [
-      ['Normal/Wet', '#86efac'], ['D0 - Abnormally Dry', '#fde047'], ['D1 - Moderate Drought', '#fbbf24'],
-      ['D2 - Severe Drought', '#f97316'], ['D3 - Extreme Drought', '#dc2626'], ['D4 - Exceptional Drought', '#7f1d1d']
+      ['N0', 'Normal/Wet', '#86efac'],
+      ['D0', 'Abnormally Dry', '#fde047'],
+      ['D1', 'Moderate Drought', '#fbbf24'],
+      ['D2', 'Severe Drought', '#f97316'],
+      ['D3', 'Extreme Drought', '#dc2626'],
+      ['D4', 'Exceptional Drought', '#7f1d1d']
     ];
     div.innerHTML = `
       <div class="head">
         <button id="legendToggle" class="toggle">‹</button>
         <h6>Drought Severity</h6>
       </div>
-      ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[1]}"></span><span class="label">${i[0]}</span></div>`).join('')}`;
+      ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}`;
     return div;
   };
   legend.addTo(map);
@@ -262,11 +331,9 @@ async function onRegionClick(feature) {
     const regionId = feature?.properties?.id;
     const indexName = indexEl.value;
     const featureName = feature?.properties?.name || 'Region';
-
     setPanelOpen(true);
 
-    let kpi;
-    let ts;
+    let kpi; let ts;
     try {
       [kpi, ts] = await Promise.all([
         fetchJson(`${API}/kpi?region_id=${regionId}&index=${indexName}`),
@@ -274,18 +341,17 @@ async function onRegionClick(feature) {
       ]);
     } catch (_) {
       const val = Number(feature?.properties?.value ?? 0);
-      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || '-', trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' } };
+      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || classify(val), trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' } };
       ts = fallbackTimeSeries(val);
     }
 
-    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || '-', trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' } };
+    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || classify(Number(feature?.properties?.value ?? 0)), trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' } };
 
     safeKpi.latest = Number(feature?.properties?.value ?? safeKpi.latest ?? 0);
-    safeKpi.severity = feature?.properties?.severity || safeKpi.severity;
+    safeKpi.severity = feature?.properties?.severity || safeKpi.severity || classify(safeKpi.latest);
 
-    const safeTs = normalizeTimeseries(ts, Number(feature?.properties?.value ?? 0));
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(safeTs, indexName);
+    renderChart(normalizeTimeseries(ts, safeKpi.latest), indexName);
   } catch (err) {
     console.error('onRegionClick error:', err);
     setPanelOpen(true);
@@ -302,8 +368,7 @@ async function onDateChanged() {
   buildMonthStrip(dateEl.value);
   await loadMap();
   if (panelEl.classList.contains('open') && selectedFeature) {
-    const refreshed = findSelectedFeatureFromCurrentMap();
-    await onRegionClick(refreshed);
+    await onRegionClick(findSelectedFeatureFromCurrentMap());
   }
 }
 
@@ -315,8 +380,10 @@ function setupEvents() {
 
   document.getElementById('prevMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
   document.getElementById('nextMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
-  document.getElementById('stripPrev').addEventListener('click', () => monthStripEl.scrollBy({ left: -240, behavior: 'smooth' }));
-  document.getElementById('stripNext').addEventListener('click', () => monthStripEl.scrollBy({ left: 240, behavior: 'smooth' }));
+
+  // Fix timeline arrow behavior: shift date and refresh (not just scroll)
+  document.getElementById('stripPrev').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
+  document.getElementById('stripNext').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
 
   closeBtn.addEventListener('click', () => setPanelOpen(false));
 
