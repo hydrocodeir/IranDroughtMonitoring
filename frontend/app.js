@@ -145,6 +145,7 @@ function buildMonthStrip(centerMonth) {
     btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
     btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
+      lastPanelQueryKey = null;
       dateEl.value = m;
       onDateChanged();
     };
@@ -441,7 +442,7 @@ async function onRegionClick(feature) {
     let kpi = { error: 'No series found' }; let ts = [];
     try {
       [kpi, ts] = await Promise.all([
-        fetchJson(`${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`),
+        fetchJson(`${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`),
         fetchJson(`${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
       ]);
     } catch (_) {}
@@ -470,8 +471,8 @@ async function onRegionClick(feature) {
 
 function findSelectedFeatureFromCurrentMap() {
   if (!selectedFeature || !latestMapFeatures.length) return selectedFeature;
-  const selectedId = selectedFeature?.properties?.id;
-  return latestMapFeatures.find(f => f?.properties?.id === selectedId) || selectedFeature;
+  const selectedId = String(selectedFeature?.properties?.id ?? '');
+  return latestMapFeatures.find((f) => String(f?.properties?.id ?? '') === selectedId) || selectedFeature;
 }
 
 async function onDateChanged() {
@@ -483,41 +484,35 @@ async function onDateChanged() {
 }
 
 function setupEvents() {
-  document.getElementById('reloadTop').addEventListener('click', onDateChanged);
+  document.getElementById('reloadTop').addEventListener('click', () => { lastPanelQueryKey = null; onDateChanged(); });
   indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
   levelEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
   dateEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
 
-  document.getElementById('prevMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
-  document.getElementById('nextMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+  document.getElementById('prevMonth').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
+  document.getElementById('nextMonth').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
   document.getElementById('toStart').addEventListener('click', () => {
     if (!currentRangeStart) return;
+    lastPanelQueryKey = null;
     dateEl.value = currentRangeStart;
     onDateChanged();
   });
   document.getElementById('toEnd').addEventListener('click', () => {
     if (!currentRangeEnd) return;
+    lastPanelQueryKey = null;
     dateEl.value = currentRangeEnd;
     onDateChanged();
   });
 
   // Fix timeline arrow behavior: shift date and refresh (not just scroll)
-  document.getElementById('stripPrev').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
-  document.getElementById('stripNext').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+  document.getElementById('stripPrev').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
+  document.getElementById('stripNext').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
 
   closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
 
   panelEl.addEventListener('click', (e) => e.stopPropagation());
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && panelEl.classList.contains('open')) { lastPanelQueryKey = null; setPanelOpen(false); }
-  });
-
-  if (modalBackdropEl) {
-    modalBackdropEl.addEventListener('click', () => setPanelOpen(false));
-  }
-  panelEl.addEventListener('click', (e) => e.stopPropagation());
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && panelEl.classList.contains('open')) setPanelOpen(false);
   });
 
   document.getElementById('search').addEventListener('input', (e) => {

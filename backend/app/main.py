@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -44,19 +46,31 @@ def get_timeseries(region_id: str, level: str = "province", index: str = "spi3")
 
 
 @app.get("/kpi")
-def get_kpi(region_id: str, level: str = "province", index: str = "spi3"):
+def get_kpi(region_id: str, level: str = "province", index: str = "spi3", date: str | None = None):
     ts = extract_timeseries(region_id, level, index)
-    values = [float(r["value"]) for r in ts]
+    if not ts:
+        return {"error": "No series found"}
+
+    rows = ts
+    if date:
+        try:
+            target_key = datetime.strptime(date, "%Y-%m").strftime("%Y-%m")
+            rows = [r for r in ts if datetime.fromisoformat(r["date"]).strftime("%Y-%m") <= target_key]
+        except Exception:
+            rows = ts
+
+    values = [float(r["value"]) for r in rows]
     if not values:
         return {"error": "No series found"}
 
     trend = mann_kendall_and_sen(values)
+    latest_val = values[-1]
     return {
         "min": min(values),
         "max": max(values),
         "mean": sum(values) / len(values),
-        "latest": values[-1],
-        "severity": drought_class(values[-1]) if index.lower().startswith(("spi", "spei")) else "N/A",
+        "latest": latest_val,
+        "severity": drought_class(latest_val) if index.lower().startswith(("spi", "spei")) else "N/A",
         "trend": trend,
     }
 
