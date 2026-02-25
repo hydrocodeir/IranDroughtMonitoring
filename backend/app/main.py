@@ -65,22 +65,14 @@ async def get_timeseries(region_id: str, level: str = "province", index: str = "
 
 @app.get("/kpi")
 async def get_kpi(region_id: str, level: str = "province", index: str = "spi3", date: str | None = None):
-    base_key = f"kpi:{level}:{index}:{region_id}:{date or 'all'}"
+    base_key = f"kpi:{level}:{index}:{region_id}:all"
 
     def _builder():
         ts = extract_timeseries(region_id, level, index)
         if not ts:
             return {"error": "No series found"}
 
-        rows = ts
-        if date:
-            try:
-                target_key = datetime.strptime(date, "%Y-%m").strftime("%Y-%m")
-                rows = [r for r in ts if datetime.fromisoformat(r["date"]).strftime("%Y-%m") <= target_key]
-            except Exception:
-                rows = ts
-
-        values = [float(r["value"]) for r in rows]
+        values = [float(r["value"]) for r in ts]
         if not values:
             return {"error": "No series found"}
 

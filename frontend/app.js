@@ -55,6 +55,14 @@ const droughtColors = {
   'Normal/Wet': '#86efac'
 };
 
+const DROUGHT_THRESHOLD_LINES = [
+  { yAxis: -0.5, name: 'D0' },
+  { yAxis: -0.8, name: 'D1' },
+  { yAxis: -1.3, name: 'D2' },
+  { yAxis: -1.6, name: 'D3' },
+  { yAxis: -2.0, name: 'D4' },
+];
+
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -359,7 +367,6 @@ function renderChart(ts, indexLabel) {
 
   const { parsedData, trendData } = cachedDerived;
   const selectedDate = toISODate(dateEl.value);
-  const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -375,16 +382,14 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    { yAxis: -0.5, name: 'D0' },
-    { yAxis: -0.8, name: 'D1' },
-    { yAxis: -1.3, name: 'D2' },
-    { yAxis: -1.6, name: 'D3' },
-    { yAxis: -2.0, name: 'D4' },
+    ...DROUGHT_THRESHOLD_LINES,
+    {
+      xAxis: selectedDate,
+      lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 },
+      label: { show: false }
+    }
   ];
 
-  if (selectedDate !== lastDate) {
-    markLineData.push({ xAxis: selectedDate, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 }, label: { show: false } });
-  }
 
   const option = {
     title: {
@@ -465,15 +470,20 @@ function renderChart(ts, indexLabel) {
     },
     dataZoom: [
       {
+        type: 'inside',
+        filterMode: 'none'
+      },
+      {
         type: 'slider',
         show: true,
-        start: 0,
-        end: 100,
+        startValue: parsedData[Math.max(parsedData.length - 60, 0)]?.[0],
+        endValue: parsedData[parsedData.length - 1]?.[0],
         bottom: 10,
         height: 25,
         borderColor: '#d1d5db',
         fillerColor: 'rgba(167, 183, 204, 0.4)',
-        handleStyle: { color: '#a7b7cc' }
+        handleStyle: { color: '#a7b7cc' },
+        filterMode: 'none'
       }
     ],
     series: [
@@ -615,14 +625,14 @@ async function onRegionClick(feature) {
     try {
       const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
-      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|all`;
       [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
       if (window.htmx && kpiGridEl) {
-        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, {
+        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}`, {
           target: '#kpiGrid',
           swap: 'innerHTML'
         });
@@ -674,7 +684,7 @@ async function onRegionClick(feature) {
       };
 
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(normalizedSeries, indexName);
+    renderChart(rangeSeries, indexName);
     togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);
