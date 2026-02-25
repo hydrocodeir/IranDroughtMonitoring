@@ -47,9 +47,20 @@ async def get_mapdata(level: str = "province", date: str = "2020-01", index: str
 
 
 @app.get("/timeseries")
-async def get_timeseries(region_id: str, level: str = "province", index: str = "spi3"):
-    key = f"ts:{level}:{index}:{region_id}"
-    return await run_in_threadpool(get_or_set_cache, key, lambda: extract_timeseries(region_id, level, index), 1800)
+async def get_timeseries(region_id: str, level: str = "province", index: str = "spi3", date: str | None = None):
+    key = f"ts:{level}:{index}:{region_id}:{date or 'all'}"
+
+    def _builder():
+        rows = extract_timeseries(region_id, level, index)
+        if not date:
+            return rows
+        try:
+            target_key = datetime.strptime(date, "%Y-%m").strftime("%Y-%m")
+            return [r for r in rows if datetime.fromisoformat(r["date"]).strftime("%Y-%m") <= target_key]
+        except Exception:
+            return rows
+
+    return await run_in_threadpool(get_or_set_cache, key, _builder, 900)
 
 
 @app.get("/kpi")

@@ -15,6 +15,8 @@ let lastPanelQueryKey = null;
 let mapUpdateDebounce = null;
 let mapAbortController = null;
 let panelAbortController = null;
+let lastChartRenderKey = null;
+let chartResizeBound = false;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX = 180;
@@ -343,7 +345,8 @@ function calculateTrendLine(data) {
 
 function renderChart(ts, indexLabel) {
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
-  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}`;
+  const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
+  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
     const parsedData = ts.map((d) => [d.date, Number(d.value)]);
@@ -359,9 +362,16 @@ function renderChart(ts, indexLabel) {
   const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
 
   const chartDom = document.getElementById('tsChart');
+  if (lastChartRenderKey !== derivedKey && chart) {
+    chart.dispose();
+    chart = null;
+  }
   if (!chart) {
     chart = echarts.init(chartDom);
+  }
+  if (!chartResizeBound) {
     window.addEventListener('resize', () => chart && chart.resize());
+    chartResizeBound = true;
   }
 
   const markLineData = [
@@ -498,6 +508,7 @@ function renderChart(ts, indexLabel) {
   currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
   currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
   chart.setOption(option, true);
+  lastChartRenderKey = derivedKey;
 }
 
 function addMapLegend() {
@@ -602,11 +613,11 @@ async function onRegionClick(feature) {
     panelAbortController = new AbortController();
     let kpi = { error: 'No series found' }; let ts = [];
     try {
-      const seriesKey = `${regionId}|${levelName}|${indexName}`;
-      const kpiKey = `${seriesKey}|${dateEl.value}`;
+      const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       [kpi, ts] = await Promise.all([
         fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
+        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal })
       ]);
       if (window.htmx && kpiGridEl) {
         htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, {
@@ -698,6 +709,7 @@ function setupEvents() {
     panelKpiCache.clear();
     timeseriesCache.clear();
     derivedSeriesCache.clear();
+    lastChartRenderKey = null;
     onDateChanged();
   });
   indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
