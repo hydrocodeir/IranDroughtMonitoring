@@ -1,5 +1,5 @@
 const API = "http://localhost:8000";
-const map = L.map('map', { zoomControl: false }).setView([32.5, 53.6], 5);
+const map = L.map('map', { zoomControl: false }).setView([22, 20], 2);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
 
@@ -68,25 +68,25 @@ function populateIndexOptions() {
 }
 
 const severityLong = {
-  'Normal/Wet': 'نرمال/مرطوب',
-  'D0': 'D0 - خشکی غیرعادی',
-  'D1': 'D1 - خشکسالی متوسط',
-  'D2': 'D2 - خشکسالی شدید',
-  'D3': 'D3 - خشکسالی بسیار شدید',
-  'D4': 'D4 - خشکسالی استثنایی'
+  'Normal/Wet': 'Normal/Wet',
+  'D0': 'D0 - Abnormally Dry',
+  'D1': 'D1 - Moderate Drought',
+  'D2': 'D2 - Severe Drought',
+  'D3': 'D3 - Extreme Drought',
+  'D4': 'D4 - Exceptional Drought'
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
 
 function toPersianDigits(value) {
-  return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
+  return String(value);
 }
 
 function formatNumber(value, digits = 4) {
   const num = Number(value);
   if (!Number.isFinite(num)) return '—';
-  const formatted = Math.abs(num).toFixed(digits).replace('.', '٫');
-  return toPersianDigits(num < 0 ? `${formatted}−` : formatted);
+  const formatted = Math.abs(num).toFixed(digits);
+  return num < 0 ? `-${formatted}` : formatted;
 }
 
 function formatPValue(value) {
@@ -100,7 +100,7 @@ function formatPValue(value) {
     return `${sign}${formatNumber(Number(numberPart), 4)}`;
   }
 
-  return toPersianDigits((raw || '—').replace('.', '٫'));
+  return (raw || '—');
 }
 
 function addMonth(yyyymm, delta) {
@@ -235,8 +235,8 @@ function applySeverityStyle(sev) {
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
   document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
-  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
+  document.getElementById('panelSubtitle').textContent = `Selected region: ${featureName}`;
+  document.getElementById('mainMetricLabel').textContent = `${indexLabel.toUpperCase()} value`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
   applySeverityStyle(sev);
@@ -245,16 +245,16 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
   document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
   document.getElementById('latestVal').textContent = formatNumber(kpi.latest);
-  document.getElementById('trendText').textContent = `روند: ${(kpi.trend?.trend === 'decreasing' ? 'کاهشی' : kpi.trend?.trend === 'increasing' ? 'افزایشی' : kpi.trend?.trend === 'no trend' ? 'بدون روند' : (kpi.trend?.trend || '—'))} | میانگین: ${formatNumber(kpi.mean)} | کمینه: ${formatNumber(kpi.min)} | بیشینه: ${formatNumber(kpi.max)}`;
+  document.getElementById('trendText').textContent = `Trend: ${(kpi.trend?.trend || '—')} | Mean: ${formatNumber(kpi.mean)} | Min: ${formatNumber(kpi.min)} | Max: ${formatNumber(kpi.max)}`;
 }
 
-function renderPanelLoading(featureName = 'ناحیه') {
+function renderPanelLoading(featureName = 'Region') {
   document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
-  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
+  document.getElementById('panelSubtitle').textContent = `Selected region: ${featureName}`;
+  document.getElementById('mainMetricLabel').textContent = `${indexEl.value.toUpperCase()} value`;
   document.getElementById('mainMetricValue').textContent = '...';
-  document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
-  document.getElementById('trendText').textContent = 'درحال بارگذاری داده‌ها...';
+  document.getElementById('severityBadge').textContent = 'Loading...';
+  document.getElementById('trendText').textContent = 'Loading data...';
   ['tauVal', 'pVal', 'senVal', 'latestVal'].forEach((id) => {
     document.getElementById(id).textContent = '...';
   });
@@ -495,7 +495,7 @@ function renderChart(ts, indexLabel) {
         }
       },
       {
-        name: 'روند',
+        name: 'Trend',
         type: 'line',
         data: trendData,
         symbol: 'none',
@@ -583,7 +583,7 @@ async function loadMap() {
     }),
     onEachFeature: (feature, layer) => {
       const mapValue = feature.properties.value == null ? '—' : formatNumber(feature.properties.value);
-      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${mapValue}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
+      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>${index.toUpperCase()}: ${mapValue}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
       layer.on('click', () => onRegionClick(feature));
     }
   }).addTo(map);
@@ -597,7 +597,7 @@ async function onRegionClick(feature) {
     const regionId = feature?.properties?.id;
     const indexName = indexEl.value;
     const levelName = levelEl.value;
-    const featureName = feature?.properties?.name || 'ناحیه';
+    const featureName = feature?.properties?.name || 'Region';
     setPanelOpen(true);
     renderPanelLoading(featureName);
     togglePanelSpinner(true);
@@ -670,7 +670,7 @@ async function onRegionClick(feature) {
         max: Number.isFinite(val) ? val : 0,
         mean: Number.isFinite(val) ? val : 0,
         severity: feature?.properties?.severity || 'N/A',
-        trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' }
+        trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' }
       };
 
     renderKPI(safeKpi, featureName, indexName);

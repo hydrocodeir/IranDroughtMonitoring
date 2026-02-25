@@ -1,98 +1,120 @@
 <!doctype html>
-<html lang="fa" dir="rtl">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>سامانه پایش خشکسالی ایران</title>
+  <title>Global Drought Monitoring and Prediction System</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="style.css" />
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
 <body>
-  <header class="topbar px-3 px-lg-4 py-2 d-flex justify-content-between align-items-center">
-    <div>
-      <h1 class="mb-0">داشبورد پایش خشکسالی ایران</h1>
-      <small class="text-muted">نمایش شاخص‌های SPI/SPEI، دما و بارش در سطوح مدیریتی ایران | تولیدکننده: HydroCode@2026</small>
+  <header class="topbar px-3 py-2 d-flex align-items-center justify-content-between">
+    <a class="home-link" href="#">Home</a>
+    <div class="headline text-center">
+      <h1 class="mb-0">Global Drought Monitoring and Prediction System</h1>
+      <small>Powered by AI and PERSIAN satellite precipitation data</small>
     </div>
-    <div class="d-none d-md-flex align-items-center gap-2">
-      <button id="reloadTop" class="btn btn-sm btn-primary">به‌روزرسانی نقشه</button>
-    </div>
+    <div class="brand">UC Irvine</div>
   </header>
 
   <main class="map-shell">
     <div id="map"></div>
 
-    <div class="floating-controls card border-0">
-      <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
-        <input id="search" placeholder="جستجوی ناحیه..." class="form-control form-control-sm search-input" />
-        <select id="index" class="form-select form-select-sm control-field"></select>
+    <div class="search-floating card border-0">
+      <div class="card-body p-2 d-flex align-items-center gap-2">
+        <input id="search" placeholder="Search for a location..." class="form-control form-control-sm search-input" />
+        <button class="btn btn-sm btn-light search-btn">🔍</button>
       </div>
+    </div>
+
+    <aside class="layers-panel card border-0">
+      <div class="card-body p-3">
+        <h5 class="mb-3">Map Layers</h5>
+        <div id="layerPanelContent" hx-get="partials/layer-panel.html" hx-trigger="load" hx-swap="innerHTML">
+          <div class="small text-muted">Loading layer controls...</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="quick-tools">
+      <button class="tool-btn">🧰</button>
+      <button class="tool-btn">⚙️</button>
     </div>
 
     <div id="modalBackdrop" class="modal-backdrop-custom" aria-hidden="true"></div>
-    <div id="mapLoading" class="map-loading"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری نقشه...</span></div>
+    <div id="mapLoading" class="map-loading"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>Loading map...</span></div>
 
-    <aside id="insightPanel" class="insight-panel" aria-hidden="true">
-      <div class="insight-header d-flex justify-content-between align-items-start">
-        <button id="closePanel" class="btn btn-light shadow-sm close-panel-btn">✕</button>
-        <div class="flex-grow-1 ps-2">
-          <h5 class="mb-1" id="panelTitle">نمای خشکسالی</h5>
-          <div class="text-secondary small" id="panelSubtitle">برای مشاهده جزئیات روی یک ناحیه کلیک کنید.</div>
-        </div>
+    <aside id="insightPanel" class="insight-panel open" aria-hidden="false">
+      <div class="insight-header d-flex justify-content-between align-items-center">
+        <h4 class="mb-0">Drought - Jun 2024</h4>
+        <button id="closePanel" class="btn btn-light close-panel-btn">✕</button>
+      </div>
+
+      <div id="panelMeta" class="mt-2" hx-get="partials/panel-meta.html" hx-trigger="load" hx-swap="innerHTML">
+        <div class="small text-muted">Loading region meta...</div>
       </div>
 
       <section id="valueBox" class="value-box mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span id="mainMetricLabel"></span>
-          <span id="severityBadge" class="severity-badge">-</span>
+        <div class="d-flex justify-content-between align-items-start mb-1">
+          <span id="mainMetricLabel">SPI-3 Value</span>
+          <span id="severityBadge" class="severity-badge">Normal/Wet</span>
         </div>
-        <div class="main-value" id="mainMetricValue">--</div>
+        <div class="main-value" id="mainMetricValue">0.61</div>
       </section>
 
+      <div class="ts-head d-flex justify-content-between align-items-center mt-3 mb-2">
+        <h5 class="mb-0">Time Series</h5>
+        <div class="text-secondary small">⤢ ⟳ ⤓</div>
+      </div>
       <div class="chart-wrap"><div id="tsChart"></div></div>
 
-      <h6 class="mt-4 mb-2">تحلیل روند</h6>
-      <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری...</span></div>
-      <div id="kpiGrid" class="kpi-grid" hx-swap="innerHTML">
-        <div class="kpi-card"><small>ضریب کندال (τ)</small><strong id="tauVal">--</strong></div>
-        <div class="kpi-card"><small>مقدار p</small><strong id="pVal">--</strong></div>
-        <div class="kpi-card"><small>شیب سن</small><strong id="senVal">--</strong></div>
-        <div class="kpi-card"><small>مقدار</small><strong id="latestVal">--</strong></div>
+      <div class="trend-card mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h6 class="mb-0">Trend Analysis</h6>
+          <span id="trendText" class="trend-text">Increasing Trend (Wetter)</span>
+        </div>
+        <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>Loading...</span></div>
+        <div id="kpiGrid" class="kpi-grid" hx-swap="innerHTML">
+          <div class="kpi-card"><small>Kendall's τ</small><strong id="tauVal">0.159</strong></div>
+          <div class="kpi-card"><small>P-value</small><strong id="pVal">&lt;0.001</strong></div>
+          <div class="kpi-card"><small>Sen's Slope</small><strong id="senVal">0.0015/yr</strong></div>
+          <div class="kpi-card"><small>Latest Value</small><strong id="latestVal">0.61</strong></div>
+        </div>
       </div>
-      <div id="trendText" class="trend-text mt-2">-</div>
     </aside>
 
+    <button id="reloadTop" class="reload-btn">↻</button>
+
     <div class="bottom-timeline card border-0">
-      <div class="card-body p-2 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-        <div class="d-flex align-items-center gap-2">
-          <button id="toStart" class="btn btn-sm btn-light" title="Go to start of data range">‹‹</button>
-          <button id="prevMonth" class="btn btn-sm btn-light">‹</button>
-          <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
-          <button id="nextMonth" class="btn btn-sm btn-light">›</button>
-          <button id="toEnd" class="btn btn-sm btn-light" title="Go to end of data range">››</button>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-          <label class="small text-muted">سطح جغرافیایی</label>
-          <select id="level" class="form-select form-select-sm timeline-level">
-            <option value="station">ایستگاهی</option>
-            <option value="province">استانی</option>
-            <option value="county">شهرستانی</option>
-            <option value="level1">حوزه درجه یک</option>
-            <option value="level2">حوزه درجه دو</option>
-            <option value="level3">حوزه درجه سه</option>
-          </select>
-        </div>
+      <div class="card-body p-2 d-flex align-items-center justify-content-center gap-2 flex-wrap">
+        <button id="toStart" class="btn btn-sm btn-light">≪</button>
+        <button id="prevMonth" class="btn btn-sm btn-light">‹</button>
+        <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2024-06" />
+        <button id="nextMonth" class="btn btn-sm btn-light">›</button>
+        <button id="toEnd" class="btn btn-sm btn-light">≫</button>
+        <select id="level" class="form-select form-select-sm timeline-level">
+          <option value="station">Station</option>
+          <option value="province">Province</option>
+          <option value="county">County</option>
+          <option value="level1">Basin Level 1</option>
+          <option value="level2">Basin Level 2</option>
+          <option value="level3">Basin Level 3</option>
+        </select>
+        <select id="index" class="form-select form-select-sm timeline-level"></select>
       </div>
       <div class="month-strip-shell">
-        <button id="stripPrev" class="strip-nav">‹‹</button>
+        <button id="stripPrev" class="strip-nav">«</button>
         <div id="monthStrip" class="month-strip"></div>
-        <button id="stripNext" class="strip-nav">››</button>
+        <button id="stripNext" class="strip-nav">»</button>
       </div>
     </div>
+
+    <div class="right-tab">Drought</div>
   </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
