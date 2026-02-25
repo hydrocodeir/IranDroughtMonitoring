@@ -405,6 +405,9 @@ function renderChart(ts, indexLabel) {
 
 
   const option = {
+    animation: false,
+    animationDuration: 0,
+    animationDurationUpdate: 0,
     title: {
       text: '',
       left: 'left',
@@ -510,7 +513,9 @@ function renderChart(ts, indexLabel) {
           origin: 0,
           opacity: 0.7
         },
+        animation: false,
         markLine: {
+          animation: false,
           symbol: ['none', 'none'],
           label: { position: 'end', formatter: '{b}', color: '#374151', fontSize: 12 },
           lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
@@ -522,6 +527,7 @@ function renderChart(ts, indexLabel) {
         type: 'line',
         data: trendData,
         symbol: 'none',
+        animation: false,
         lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
         itemStyle: { color: '#ef4444' }
       }
