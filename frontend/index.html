@@ -46,13 +46,12 @@
 
       <section id="valueBox" class="value-box mt-3">
         <div class="d-flex justify-content-between align-items-center mb-1">
-          <span id="mainMetricLabel">مقدار SPI-3</span>
+          <span id="mainMetricLabel"></span>
           <span id="severityBadge" class="severity-badge">-</span>
         </div>
         <div class="main-value" id="mainMetricValue">--</div>
       </section>
 
-      <h6 class="mt-4 mb-2">سری زمانی</h6>
       <div class="chart-wrap"><div id="tsChart"></div></div>
 
       <h6 class="mt-4 mb-2">تحلیل روند</h6>
@@ -68,11 +67,11 @@
     <div class="bottom-timeline card border-0">
       <div class="card-body p-2 d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <div class="d-flex align-items-center gap-2">
-          <button id="toStart" class="btn btn-sm btn-light" title="Go to start of data range">⏮</button>
+          <button id="toStart" class="btn btn-sm btn-light" title="Go to start of data range">‹‹</button>
           <button id="prevMonth" class="btn btn-sm btn-light">‹</button>
           <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
           <button id="nextMonth" class="btn btn-sm btn-light">›</button>
-          <button id="toEnd" class="btn btn-sm btn-light" title="Go to end of data range">⏭</button>
+          <button id="toEnd" class="btn btn-sm btn-light" title="Go to end of data range">››</button>
         </div>
         <div class="d-flex align-items-center gap-2">
           <label class="small text-muted">سطح جغرافیایی</label>

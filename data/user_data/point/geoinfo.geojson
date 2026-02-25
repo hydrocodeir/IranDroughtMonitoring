@@ -1,0 +1,31 @@
+{
+"type": "FeatureCollection",
+"name": "stations",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "station_id": 40759, "station_name": "Sari", "Province": "Mazandaran", "Latitude": 36.536, "Longitude": 52.998, "Elevation": 23.0 }, "geometry": { "type": "Point", "coordinates": [ 52.998, 36.536, 23.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99306, "station_name": "Bandar-e-amirabad", "Province": "Mazandaran", "Latitude": 36.856, "Longitude": 53.386, "Elevation": -20.0 }, "geometry": { "type": "Point", "coordinates": [ 53.386, 36.856, -20.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99357, "station_name": "Baladeh", "Province": "Mazandaran", "Latitude": 36.198, "Longitude": 51.801, "Elevation": 2120.0 }, "geometry": { "type": "Point", "coordinates": [ 51.801, 36.198, 2120.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99299, "station_name": "Galugah", "Province": "Mazandaran", "Latitude": 36.738, "Longitude": 53.837, "Elevation": -10.0 }, "geometry": { "type": "Point", "coordinates": [ 53.837, 36.738, -10.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40737, "station_name": "Gharakhil", "Province": "Mazandaran", "Latitude": 36.487, "Longitude": 52.108, "Elevation": 14.7 }, "geometry": { "type": "Point", "coordinates": [ 52.108, 36.487, 14.7 ] } },
+{ "type": "Feature", "properties": { "station_id": 40760, "station_name": "Kiyasar", "Province": "Mazandaran", "Latitude": 36.248, "Longitude": 53.546, "Elevation": 1294.3 }, "geometry": { "type": "Point", "coordinates": [ 53.546, 36.248, 1294.3 ] } },
+{ "type": "Feature", "properties": { "station_id": 99361, "station_name": "Alasht", "Province": "Mazandaran", "Latitude": 36.071, "Longitude": 52.843, "Elevation": 1805.0 }, "geometry": { "type": "Point", "coordinates": [ 52.843, 36.071, 1805.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99309, "station_name": "Amol", "Province": "Mazandaran", "Latitude": 36.479, "Longitude": 52.468, "Elevation": 23.7 }, "geometry": { "type": "Point", "coordinates": [ 52.468, 36.479, 23.7 ] } },
+{ "type": "Feature", "properties": { "station_id": 99348, "station_name": "Kojur", "Province": "Mazandaran", "Latitude": 36.39, "Longitude": 51.729, "Elevation": 1550.0 }, "geometry": { "type": "Point", "coordinates": [ 51.729, 36.39, 1550.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99360, "station_name": "Polsefid", "Province": "Mazandaran", "Latitude": 36.104, "Longitude": 53.062, "Elevation": 610.0 }, "geometry": { "type": "Point", "coordinates": [ 53.062, 36.104, 610.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40735, "station_name": "Siahbisheh", "Province": "Mazandaran", "Latitude": 36.231, "Longitude": 51.303, "Elevation": 1855.4 }, "geometry": { "type": "Point", "coordinates": [ 51.303, 36.231, 1855.4 ] } },
+{ "type": "Feature", "properties": { "station_id": 40736, "station_name": "Babolsar", "Province": "Mazandaran", "Latitude": 36.699, "Longitude": 52.643, "Elevation": -21.0 }, "geometry": { "type": "Point", "coordinates": [ 52.643, 36.699, -21.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40734, "station_name": "Nowshahr", "Province": "Mazandaran", "Latitude": 36.661, "Longitude": 51.466, "Elevation": -20.9 }, "geometry": { "type": "Point", "coordinates": [ 51.466, 36.661, -20.9 ] } },
+{ "type": "Feature", "properties": { "station_id": 40732, "station_name": "Ramsar", "Province": "Mazandaran", "Latitude": 36.905, "Longitude": 50.684, "Elevation": -20.0 }, "geometry": { "type": "Point", "coordinates": [ 50.684, 36.905, -20.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40788, "station_name": "Sari (dasht-e-naz airport)", "Province": "Mazandaran", "Latitude": 36.64, "Longitude": 53.195, "Elevation": 16.7 }, "geometry": { "type": "Point", "coordinates": [ 53.195, 36.64, 16.7 ] } },
+{ "type": "Feature", "properties": { "station_id": 40718, "station_name": "Bandar-e-anzali", "Province": "Gilan", "Latitude": 37.48, "Longitude": 49.458, "Elevation": -23.6 }, "geometry": { "type": "Point", "coordinates": [ 49.458, 37.48, -23.6 ] } },
+{ "type": "Feature", "properties": { "station_id": 40805, "station_name": "Jirandeh", "Province": "Gilan", "Latitude": 36.708, "Longitude": 49.802, "Elevation": 1581.4 }, "geometry": { "type": "Point", "coordinates": [ 49.802, 36.708, 1581.4 ] } },
+{ "type": "Feature", "properties": { "station_id": 99268, "station_name": "Kiyashahr", "Province": "Gilan", "Latitude": 37.417, "Longitude": 49.883, "Elevation": -22.0 }, "geometry": { "type": "Point", "coordinates": [ 49.883, 37.417, -22.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 99276, "station_name": "Lahijan", "Province": "Gilan", "Latitude": 37.194, "Longitude": 50.016, "Elevation": 34.2 }, "geometry": { "type": "Point", "coordinates": [ 50.016, 37.194, 34.2 ] } },
+{ "type": "Feature", "properties": { "station_id": 40720, "station_name": "Manjil", "Province": "Gilan", "Latitude": 36.729, "Longitude": 49.41, "Elevation": 338.3 }, "geometry": { "type": "Point", "coordinates": [ 49.41, 36.729, 338.3 ] } },
+{ "type": "Feature", "properties": { "station_id": 99281, "station_name": "Masuleh", "Province": "Gilan", "Latitude": 37.15, "Longitude": 48.983, "Elevation": 1081.0 }, "geometry": { "type": "Point", "coordinates": [ 48.983, 37.15, 1081.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40709, "station_name": "Astara", "Province": "Gilan", "Latitude": 38.365, "Longitude": 48.855, "Elevation": -21.1 }, "geometry": { "type": "Point", "coordinates": [ 48.855, 38.365, -21.1 ] } },
+{ "type": "Feature", "properties": { "station_id": 99249, "station_name": "Talesh", "Province": "Gilan", "Latitude": 37.839, "Longitude": 48.897, "Elevation": 7.0 }, "geometry": { "type": "Point", "coordinates": [ 48.897, 37.839, 7.0 ] } },
+{ "type": "Feature", "properties": { "station_id": 40719, "station_name": "Rasht", "Province": "Gilan", "Latitude": 37.323, "Longitude": 49.624, "Elevation": -8.6 }, "geometry": { "type": "Point", "coordinates": [ 49.624, 37.323, -8.6 ] } }
+]
+}

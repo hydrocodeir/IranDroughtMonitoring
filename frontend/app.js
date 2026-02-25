@@ -33,8 +33,9 @@ const droughtColors = {
 
 
 function populateIndexOptions() {
+  const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
   const options = [];
-  for (let window = 1; window <= 24; window += 1) {
+  for (const window of windows) {
     options.push({ value: `spi${window}`, label: `SPI-${window}` });
     options.push({ value: `spei${window}`, label: `SPEI-${window}` });
   }
@@ -86,7 +87,7 @@ function addMonth(yyyymm, delta) {
 
 function toMonthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
-  const labels = ['ژان','فور','مار','آور','مه','ژوئن','ژوئیه','اوت','سپت','اکت','نوام','دسام'];
+  const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
   return { month: labels[m - 1], year: y };
 }
 
@@ -174,7 +175,7 @@ function applySeverityStyle(sev) {
 
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
-  document.getElementById('panelTitle').textContent = `خشکسالی - ${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
   document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
@@ -266,7 +267,7 @@ function renderChart(ts, indexLabel) {
     },
     xAxis: {
       type: 'time',
-      name: 'تاریخ',
+      name: '',
       nameLocation: 'middle',
       nameGap: 36,
       boundaryGap: false,
@@ -280,14 +281,14 @@ function renderChart(ts, indexLabel) {
     },
     yAxis: {
       type: 'value',
-      name: 'Value',
+      name: '',
       nameTextStyle: { color: '#6b7280', padding: [0, 0, 0, 8] },
       min: -3,
       max: 2,
       interval: 1,
       axisLabel: {
         color: '#6b7280',
-        formatter: (value) => formatNumber(value)
+        formatter: (value) => value
       },
       splitLine: {
         show: true,
