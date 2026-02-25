@@ -195,7 +195,7 @@ function drawThresholdGuides(chartRef) {
   const y = chartRef.scales.y;
   const { ctx, chartArea } = chartRef;
   if (!y || !chartArea) return;
-  [-0.5, -0.8, -1.3, -1.6, -2.0].forEach(v => {
+  [0, -0.5, -0.8, -1.3, -1.6, -2.0].forEach(v => {
     const py = y.getPixelForValue(v);
     ctx.save();
     ctx.strokeStyle = 'rgba(107,114,128,.55)';
@@ -259,6 +259,7 @@ function drawThresholdLabels(chartRef) {
   if (!y || !chartArea) return;
 
   const labels = [
+    { text: 'N0', val: 0 },
     { text: 'D0', val: -0.5 },
     { text: 'D1', val: -0.8 },
     { text: 'D2', val: -1.3 },
