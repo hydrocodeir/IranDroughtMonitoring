@@ -15,7 +15,7 @@ body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
 #map { height: calc(100vh - 70px); width: 100%; }
 
 .floating-controls { position: absolute; top: 86px; right: 18px; z-index: 700; border-radius: 14px; box-shadow: 0 10px 40px rgba(15, 23, 42, 0.15); }
-.search-input { min-width: 170px; max-width: 190px; }
+.search-input { min-width: 140px; max-width: 160px; }
 .control-field { width: 180px; }
 
 .map-legend { background: rgba(255,255,255,.95); border: 1px solid #dbe5f4; border-radius: 12px; padding: 10px; box-shadow: 0 8px 20px rgba(0,0,0,.15); line-height: 1.2; min-width: 165px; }
@@ -41,9 +41,6 @@ body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
 .month-chip.active { color: #2563eb; font-weight: 700; background: #eff6ff; }
 .month-chip .year-tag { display: block; font-size: .68rem; color: #f97316; line-height: 1; }
 
-.timeline-meta { display:flex; justify-content:flex-end; gap:14px; font-size:.72rem; padding: 0 12px 8px; color:#64748b; }
-.timeline-meta .obs::before { content:""; display:inline-block; width:8px; height:8px; background:#334155; border-radius:999px; margin-left:6px; }
-.timeline-meta .pred::before { content:""; display:inline-block; width:8px; height:8px; background:#2563eb; border-radius:999px; margin-left:6px; }
 .month-chip.predicted { color:#2563eb; }
 
 .insight-panel { position: absolute; top: 80px; left: 18px; width: min(430px, calc(100vw - 36px)); max-height: calc(100vh - 120px); overflow-y: auto; z-index: 800; background: var(--panel); border: 1px solid var(--stroke); border-radius: 18px; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28); padding: 18px; transform: translateX(-115%); transition: transform .28s ease; }
@@ -71,6 +68,6 @@ body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
 .trend-text { font-size: .92rem; color: #334155; }
 
 @media (max-width: 768px) {
-  .search-input { min-width: 150px; max-width: 170px; }
+  .search-input { min-width: 130px; max-width: 150px; }
   .bottom-timeline { min-width: calc(100vw - 16px); }
 }

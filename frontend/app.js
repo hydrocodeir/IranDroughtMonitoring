@@ -77,6 +77,12 @@ function toMonthLabel(yyyymm) {
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
+function formatChartDate(value) {
+  const dt = new Date(value);
+  if (Number.isNaN(dt.getTime())) return String(value || '');
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
 async function fetchJson(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -246,10 +252,11 @@ function renderChart(ts, indexLabel) {
       axisPointer: { type: 'cross' },
       formatter: (params) => {
         const entries = Array.isArray(params) ? params : [params];
-        const axisValue = entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '';
+        const rawAxis = entries[0]?.axisValue ?? entries[0]?.value?.[0] ?? '';
+        const axisValue = formatChartDate(rawAxis);
         const rows = entries.map((item) => {
           const value = Array.isArray(item.value) ? item.value[1] : item.value;
-          return `${item.marker}${item.seriesName}: ${Number(value).toFixed(4)}`;
+          return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
         });
         return [axisValue, ...rows].join('<br/>');
       }
@@ -268,12 +275,12 @@ function renderChart(ts, indexLabel) {
     },
     xAxis: {
       type: 'time',
-      name: 'Date',
+      name: 'تاریخ',
       nameLocation: 'middle',
       nameGap: 36,
       boundaryGap: false,
       axisLabel: {
-        formatter: (value) => toPersianDigits(String(value).slice(0, 7).replace(/-/g, '/')),
+        formatter: (value) => formatChartDate(value),
         rotate: 45,
         color: '#6b7280'
       },
