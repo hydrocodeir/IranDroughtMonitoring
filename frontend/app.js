@@ -611,13 +611,15 @@ async function onRegionClick(feature) {
     const reqId = ++panelRequestSeq;
     if (panelAbortController) panelAbortController.abort();
     panelAbortController = new AbortController();
-    let kpi = { error: 'No series found' }; let ts = [];
+    let kpi = { error: 'No series found' }; let ts = []; let tsAll = [];
     try {
       const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
       const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
-      [kpi, ts] = await Promise.all([
+      [kpi, ts, tsAll] = await Promise.all([
         fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal })
+        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
       if (window.htmx && kpiGridEl) {
         htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, {
@@ -630,9 +632,11 @@ async function onRegionClick(feature) {
     if (reqId !== panelRequestSeq) return;
 
     const normalizedSeries = normalizeTimeseries(ts);
-    const { minDate, maxDate } = getDateRangeFromTimeseries(normalizedSeries);
+    const normalizedAllSeries = normalizeTimeseries(tsAll);
+    const rangeSeries = normalizedAllSeries.length ? normalizedAllSeries : normalizedSeries;
+    const { minDate, maxDate } = getDateRangeFromTimeseries(rangeSeries);
 
-    if (!normalizedSeries.length) {
+    if (!rangeSeries.length) {
       setTimelineDisabled(true);
       setNoDataMessage(true, 'No data for this selection');
       renderKPI({
