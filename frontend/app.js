@@ -110,55 +110,11 @@ function classify(value) {
   return 'D4';
 }
 
-function fallbackGeoJSON(level = levelEl.value, dateRef = dateEl.value) {
-  const month = Number((dateRef || '2020-01').split('-')[1] || 1);
-  const tehranValue = -0.9 + (month * 0.03);
-  const isfahanValue = -1.3 + (month * 0.02);
-  if (level === 'station') {
-    return {
-      type: 'FeatureCollection',
-      features: [
-        {
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [51.39, 35.69] },
-          properties: { id: 1001, name: 'ایستگاه تهران', value: Number(tehranValue.toFixed(4)), severity: classify(tehranValue) }
-        },
-        {
-          type: 'Feature',
-          geometry: { type: 'Point', coordinates: [51.67, 32.65] },
-          properties: { id: 1002, name: 'ایستگاه اصفهان', value: Number(isfahanValue.toFixed(4)), severity: classify(isfahanValue) }
-        }
-      ]
-    };
-  }
-  return {
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [[[50.9,35.3],[52.0,35.3],[52.0,36.2],[50.9,36.2],[50.9,35.3]]] },
-        properties: { id: 1, name: 'Tehran', value: Number(tehranValue.toFixed(4)), severity: classify(tehranValue) }
-      },
-      {
-        type: 'Feature',
-        geometry: { type: 'Polygon', coordinates: [[[50.1,31.4],[52.7,31.4],[52.7,33.8],[50.1,33.8],[50.1,31.4]]] },
-        properties: { id: 2, name: 'Isfahan', value: Number(isfahanValue.toFixed(4)), severity: classify(isfahanValue) }
-      }
-    ]
-  };
-}
-
-function fallbackTimeSeries(baseValue = -0.5) {
-  return Array.from({ length: 48 }).map((_, i) => ({
-    date: `2022-${String((i % 12) + 1).padStart(2, '0')}-01`,
-    value: (Math.sin(i / 3) - 0.7) + (Math.random() * 0.45) + baseValue * 0.05
-  }));
-}
-
-function normalizeTimeseries(ts, baseValue = -0.5) {
-  if (!Array.isArray(ts) || ts.length === 0) return fallbackTimeSeries(baseValue);
-  const ok = ts.filter(d => d && d.date && Number.isFinite(Number(d.value))).map(d => ({ date: d.date, value: Number(d.value) }));
-  return ok.length ? ok : fallbackTimeSeries(baseValue);
+function normalizeTimeseries(ts) {
+  if (!Array.isArray(ts) || ts.length === 0) return [];
+  return ts
+    .filter((d) => d && d.date && Number.isFinite(Number(d.value)))
+    .map((d) => ({ date: d.date, value: Number(d.value) }));
 }
 
 function getTrendLine(values) {
@@ -434,12 +390,10 @@ async function loadMap() {
   const level = levelEl.value;
   const index = indexEl.value;
   const date = dateEl.value;
-  let data;
+  let data = { type: 'FeatureCollection', features: [] };
   try {
     data = await fetchJson(`${API}/mapdata?level=${level}&index=${index}&date=${date}`);
-  } catch (_) {
-    data = fallbackGeoJSON(level, date);
-  }
+  } catch (_) {}
 
   latestMapFeatures = data.features || [];
   if (geoLayer) map.removeLayer(geoLayer);
@@ -454,7 +408,8 @@ async function loadMap() {
       fillOpacity: 0.95
     }),
     onEachFeature: (feature, layer) => {
-      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${formatNumber(feature.properties.value)}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
+      const mapValue = feature.properties.value == null ? '—' : formatNumber(feature.properties.value);
+      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${mapValue}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
       layer.on('click', () => onRegionClick(feature));
     }
   }).addTo(map);
@@ -467,28 +422,32 @@ async function onRegionClick(feature) {
     selectedFeature = feature;
     const regionId = feature?.properties?.id;
     const indexName = indexEl.value;
+    const levelName = levelEl.value;
     const featureName = feature?.properties?.name || 'ناحیه';
     setPanelOpen(true);
 
-    let kpi; let ts;
+    let kpi = { error: 'No series found' }; let ts = [];
     try {
       [kpi, ts] = await Promise.all([
-        fetchJson(`${API}/kpi?region_id=${regionId}&index=${indexName}`),
-        fetchJson(`${API}/timeseries?region_id=${regionId}&index=${indexName}`)
+        fetchJson(`${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`),
+        fetchJson(`${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
       ]);
-    } catch (_) {
-      const val = Number(feature?.properties?.value ?? 0);
-      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || classify(val), trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'کاهشی' } };
-      ts = fallbackTimeSeries(val);
-    }
+    } catch (_) {}
 
-    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || classify(Number(feature?.properties?.value ?? 0)), trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' } };
-
-    safeKpi.latest = Number(feature?.properties?.value ?? safeKpi.latest ?? 0);
-    safeKpi.severity = feature?.properties?.severity || safeKpi.severity || classify(safeKpi.latest);
+    const val = Number(feature?.properties?.value);
+    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
+      ? kpi
+      : {
+        latest: Number.isFinite(val) ? val : 0,
+        min: Number.isFinite(val) ? val : 0,
+        max: Number.isFinite(val) ? val : 0,
+        mean: Number.isFinite(val) ? val : 0,
+        severity: feature?.properties?.severity || 'N/A',
+        trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' }
+      };
 
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(normalizeTimeseries(ts, safeKpi.latest), indexName);
+    renderChart(normalizeTimeseries(ts), indexName);
   } catch (err) {
     console.error('onRegionClick error:', err);
     setPanelOpen(true);
@@ -547,7 +506,7 @@ function setupEvents() {
     const q = e.target.value.trim();
     geoLayer.eachLayer((layer) => {
       const hit = !q || layer.feature.properties.name.toLowerCase().includes(q.toLowerCase());
-      layer.setStyle({ opacity: hit ? 1 : .2, fillOpacity: hit ? .78 : .1 });
+      if (layer.setStyle) layer.setStyle({ opacity: hit ? 1 : .2, fillOpacity: hit ? .78 : .1 });
     });
   });
 }
