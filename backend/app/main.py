@@ -65,7 +65,7 @@ async def get_timeseries(region_id: str, level: str = "province", index: str = "
 
 @app.get("/kpi")
 async def get_kpi(region_id: str, level: str = "province", index: str = "spi3", date: str | None = None):
-    base_key = f"kpi:{level}:{index}:{region_id}:all"
+    base_key = f"kpi:{level}:{index}:{region_id}:{date or 'all'}"
 
     def _builder():
         ts = extract_timeseries(region_id, level, index)

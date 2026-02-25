@@ -55,13 +55,13 @@ const droughtColors = {
   'Normal/Wet': '#86efac'
 };
 
-const DROUGHT_THRESHOLD_LINES = [
+const DROUGHT_THRESHOLD_LINES = Object.freeze([
   { yAxis: -0.5, name: 'D0' },
   { yAxis: -0.8, name: 'D1' },
   { yAxis: -1.3, name: 'D2' },
   { yAxis: -1.6, name: 'D3' },
   { yAxis: -2.0, name: 'D4' },
-];
+]);
 
 
 function populateIndexOptions() {
@@ -125,7 +125,7 @@ function toMonthLabel(yyyymm) {
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
-function toUTCMonthStart(yyyymm) { return `${yyyymm}-01T00:00:00Z`; }
+function toChartMonthStart(yyyymm) { return `${yyyymm}-01`; }
 
 function formatChartDate(value) {
   const raw = String(value || '');
@@ -372,7 +372,7 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toUTCMonthStart(dateEl.value);
+  const selectedDate = toChartMonthStart(dateEl.value);
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -388,10 +388,11 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    ...DROUGHT_THRESHOLD_LINES,
+    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })),
     {
+      name: 'Selected month',
       xAxis: selectedDate,
-      lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 },
+      lineStyle: { color: '#2563eb', type: 'dashed', width: 1.8 },
       label: { show: false }
     }
   ];
@@ -631,9 +632,9 @@ async function onRegionClick(feature) {
     try {
       const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
-      const kpiKey = `${regionId}|${levelName}|${indexName}|all`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal }),
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
@@ -677,17 +678,30 @@ async function onRegionClick(feature) {
       return;
     }
 
+    const latestVisiblePoint = normalizedSeries.length ? normalizedSeries[normalizedSeries.length - 1] : null;
+    const latestVisibleValue = Number(latestVisiblePoint?.value);
     const val = Number(feature?.properties?.value);
+    const resolvedLatest = Number.isFinite(latestVisibleValue)
+      ? latestVisibleValue
+      : (Number.isFinite(val) ? val : NaN);
+
     const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
       ? kpi
       : {
-        latest: Number.isFinite(val) ? val : 0,
-        min: Number.isFinite(val) ? val : 0,
-        max: Number.isFinite(val) ? val : 0,
-        mean: Number.isFinite(val) ? val : 0,
+        latest: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        min: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        max: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        mean: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
         severity: feature?.properties?.severity || 'N/A',
         trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' }
       };
+
+    if (Number.isFinite(resolvedLatest)) {
+      safeKpi.latest = resolvedLatest;
+      if (!safeKpi.severity || safeKpi.severity === 'N/A') {
+        safeKpi.severity = classify(resolvedLatest);
+      }
+    }
 
     renderKPI(safeKpi, featureName, indexName);
     renderChart(rangeSeries, indexName);
