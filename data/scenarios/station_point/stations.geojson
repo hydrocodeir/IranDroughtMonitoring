@@ -1,0 +1,47 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          51.389,
+          35.689
+        ]
+      },
+      "properties": {
+        "station_id": "ST001",
+        "station_name": "ایستگاه تهران"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          51.677,
+          32.654
+        ]
+      },
+      "properties": {
+        "station_id": "ST002",
+        "station_name": "ایستگاه اصفهان"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          59.616,
+          36.297
+        ]
+      },
+      "properties": {
+        "station_id": "ST003",
+        "station_name": "ایستگاه مشهد"
+      }
+    }
+  ]
+}
