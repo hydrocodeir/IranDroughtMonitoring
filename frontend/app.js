@@ -7,6 +7,8 @@ let geoLayer;
 let chart;
 let selectedFeature = null;
 let latestMapFeatures = [];
+let currentRangeStart = null;
+let currentRangeEnd = null;
 
 const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
@@ -266,6 +268,9 @@ function renderChart(ts, indexLabel) {
     },
     xAxis: {
       type: 'time',
+      name: 'Date',
+      nameLocation: 'middle',
+      nameGap: 36,
       boundaryGap: false,
       axisLabel: {
         formatter: (value) => toPersianDigits(String(value).slice(0, 7).replace(/-/g, '/')),
@@ -277,6 +282,8 @@ function renderChart(ts, indexLabel) {
     },
     yAxis: {
       type: 'value',
+      name: 'Value',
+      nameTextStyle: { color: '#6b7280', padding: [0, 0, 0, 8] },
       min: -3,
       max: 2,
       interval: 1,
@@ -346,6 +353,8 @@ function renderChart(ts, indexLabel) {
     ]
   };
 
+  currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
+  currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
   chart.setOption(option, true);
 }
 
@@ -463,6 +472,16 @@ function setupEvents() {
 
   document.getElementById('prevMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
   document.getElementById('nextMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+  document.getElementById('toStart').addEventListener('click', () => {
+    if (!currentRangeStart) return;
+    dateEl.value = currentRangeStart;
+    onDateChanged();
+  });
+  document.getElementById('toEnd').addEventListener('click', () => {
+    if (!currentRangeEnd) return;
+    dateEl.value = currentRangeEnd;
+    onDateChanged();
+  });
 
   // Fix timeline arrow behavior: shift date and refresh (not just scroll)
   document.getElementById('stripPrev').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
