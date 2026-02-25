@@ -17,6 +17,7 @@ const panelEl = document.getElementById('insightPanel');
 const closeBtn = document.getElementById('closePanel');
 const monthStripEl = document.getElementById('monthStrip');
 const valueBoxEl = document.getElementById('valueBox');
+const modalBackdropEl = document.getElementById('modalBackdrop');
 
 const droughtColors = {
   'D4': '#7f1d1d',
@@ -26,6 +27,17 @@ const droughtColors = {
   'D0': '#fde047',
   'Normal/Wet': '#86efac'
 };
+
+
+function populateIndexOptions() {
+  const options = [];
+  for (let window = 1; window <= 24; window += 1) {
+    options.push({ value: `spi${window}`, label: `SPI-${window}` });
+    options.push({ value: `spei${window}`, label: `SPEI-${window}` });
+  }
+  indexEl.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  indexEl.value = 'spi3';
+}
 
 const severityLong = {
   'Normal/Wet': 'نرمال/مرطوب',
@@ -98,10 +110,27 @@ function classify(value) {
   return 'D4';
 }
 
-function fallbackGeoJSON(dateRef = dateEl.value) {
+function fallbackGeoJSON(level = levelEl.value, dateRef = dateEl.value) {
   const month = Number((dateRef || '2020-01').split('-')[1] || 1);
   const tehranValue = -0.9 + (month * 0.03);
   const isfahanValue = -1.3 + (month * 0.02);
+  if (level === 'station') {
+    return {
+      type: 'FeatureCollection',
+      features: [
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [51.39, 35.69] },
+          properties: { id: 1001, name: 'ایستگاه تهران', value: Number(tehranValue.toFixed(4)), severity: classify(tehranValue) }
+        },
+        {
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [51.67, 32.65] },
+          properties: { id: 1002, name: 'ایستگاه اصفهان', value: Number(isfahanValue.toFixed(4)), severity: classify(isfahanValue) }
+        }
+      ]
+    };
+  }
   return {
     type: 'FeatureCollection',
     features: [
@@ -167,6 +196,10 @@ function buildMonthStrip(centerMonth) {
 function setPanelOpen(open) {
   panelEl.classList.toggle('open', open);
   panelEl.setAttribute('aria-hidden', String(!open));
+  if (modalBackdropEl) {
+    modalBackdropEl.classList.toggle('open', open);
+    modalBackdropEl.setAttribute('aria-hidden', String(!open));
+  }
 }
 
 function applySeverityStyle(sev) {
@@ -405,7 +438,7 @@ async function loadMap() {
   try {
     data = await fetchJson(`${API}/mapdata?level=${level}&index=${index}&date=${date}`);
   } catch (_) {
-    data = fallbackGeoJSON(date);
+    data = fallbackGeoJSON(level, date);
   }
 
   latestMapFeatures = data.features || [];
@@ -413,6 +446,13 @@ async function loadMap() {
 
   geoLayer = L.geoJSON(data, {
     style: f => ({ color: '#334155', weight: 1, fillOpacity: 0.78, fillColor: severityColor(f.properties.severity) }),
+    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
+      radius: 8,
+      weight: 1.5,
+      color: '#0f172a',
+      fillColor: severityColor(feature?.properties?.severity),
+      fillOpacity: 0.95
+    }),
     onEachFeature: (feature, layer) => {
       layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${formatNumber(feature.properties.value)}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
       layer.on('click', () => onRegionClick(feature));
@@ -494,6 +534,14 @@ function setupEvents() {
 
   closeBtn.addEventListener('click', () => setPanelOpen(false));
 
+  if (modalBackdropEl) {
+    modalBackdropEl.addEventListener('click', () => setPanelOpen(false));
+  }
+  panelEl.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panelEl.classList.contains('open')) setPanelOpen(false);
+  });
+
   document.getElementById('search').addEventListener('input', (e) => {
     if (!geoLayer) return;
     const q = e.target.value.trim();
@@ -504,6 +552,7 @@ function setupEvents() {
   });
 }
 
+populateIndexOptions();
 addMapLegend();
 setupEvents();
 buildMonthStrip(dateEl.value);

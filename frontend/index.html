@@ -29,14 +29,11 @@
     <div class="floating-controls card border-0">
       <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
         <input id="search" placeholder="جستجوی ناحیه..." class="form-control form-control-sm search-input" />
-        <select id="index" class="form-select form-select-sm control-field">
-          <option value="spi3">SPI-3</option>
-          <option value="spei3">SPEI-3</option>
-          <option value="precip">بارش ماهانه</option>
-          <option value="temp">میانگین دما</option>
-        </select>
+        <select id="index" class="form-select form-select-sm control-field"></select>
       </div>
     </div>
+
+    <div id="modalBackdrop" class="modal-backdrop-custom" aria-hidden="true"></div>
 
     <aside id="insightPanel" class="insight-panel" aria-hidden="true">
       <div class="insight-header d-flex justify-content-between align-items-start">
@@ -80,12 +77,13 @@
         <div class="d-flex align-items-center gap-2">
           <label class="small text-muted">سطح جغرافیایی</label>
           <select id="level" class="form-select form-select-sm timeline-level">
-            <option value="province">استان</option>
-            <option value="county">شهرستان</option>
+            <option value="station">ایستگاهی</option>
+            <option value="province">استانی</option>
+            <option value="county">شهرستانی</option>
             <option value="study_area">حوزه مطالعاتی</option>
-            <option value="level1">سطح ۱</option>
-            <option value="level2">سطح ۲</option>
-            <option value="level3">سطح ۳</option>
+            <option value="level1">حوزه درجه یک</option>
+            <option value="level2">حوزه درجه دو</option>
+            <option value="level3">حوزه درجه سه</option>
           </select>
         </div>
       </div>
