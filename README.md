@@ -63,3 +63,28 @@ docker-compose up --build
 2. Keep `name` + `level` attributes.
 3. If using full hierarchy, update seed import logic in `backend/app/seed.py`.
 4. Replace synthetic CSV with real monthly outputs.
+
+## Scenario templates for real data replacement
+The repository now includes ready-to-fill sample files for your requested SPI/SPEI workflows:
+
+### 1) Station point scenario (CSV + GeoJSON)
+- `data/scenarios/station_point/stations.geojson`
+  - Point geometry per station with `station_id` and `station_name`.
+- `data/scenarios/station_point/station_spi_spei_1_24_sample.csv`
+  - Monthly values with columns: `station_id`, `date`, `spi1..spi24`, `spei1..spei24`.
+
+### 2) Polygon level scenario (province/county/basin levels)
+- `data/scenarios/polygon_levels/province.geojson`
+- `data/scenarios/polygon_levels/county.geojson`
+- `data/scenarios/polygon_levels/level1.geojson`
+- `data/scenarios/polygon_levels/level2.geojson`
+- `data/scenarios/polygon_levels/level3.geojson`
+- `data/scenarios/polygon_levels/polygon_spi_spei_1_24_sample.csv`
+  - Monthly values with columns: `level`, `unit_id`, `date`, `spi1..spi24`, `spei1..spei24`.
+
+### Dashboard behavior prepared
+- Geographic dropdown includes: `ایستگاهی`, `استانی`, `شهرستانی`, `حوزه درجه یک`, `حوزه درجه دو`, `حوزه درجه سه`.
+- Index dropdown now includes all SPI/SPEI windows from 1 to 24 months.
+- Selecting either Point or Polygon opens a modal-style detail view and chart panel.
+
+> You can replace only the sample values and keep the schema/column names unchanged so the UI contract stays stable.

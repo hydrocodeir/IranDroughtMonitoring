@@ -1,0 +1,75 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              50.9,
+              35.3
+            ],
+            [
+              52.0,
+              35.3
+            ],
+            [
+              52.0,
+              36.2
+            ],
+            [
+              50.9,
+              36.2
+            ],
+            [
+              50.9,
+              35.3
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "unit_id": "LEVEL3_001",
+        "unit_name": "حوزه درجه سه نمونه 1",
+        "level": "level3"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              50.1,
+              31.4
+            ],
+            [
+              52.7,
+              31.4
+            ],
+            [
+              52.7,
+              33.8
+            ],
+            [
+              50.1,
+              33.8
+            ],
+            [
+              50.1,
+              31.4
+            ]
+          ]
+        ]
+      },
+      "properties": {
+        "unit_id": "LEVEL3_002",
+        "unit_name": "حوزه درجه سه نمونه 2",
+        "level": "level3"
+      }
+    }
+  ]
+}
