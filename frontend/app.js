@@ -13,7 +13,13 @@ let mapRequestSeq = 0;
 let panelRequestSeq = 0;
 let lastPanelQueryKey = null;
 let mapUpdateDebounce = null;
+let mapAbortController = null;
+let panelAbortController = null;
+let lastChartRenderKey = null;
+let chartResizeBound = false;
 
+const CACHE_TTL_MS = 5 * 60 * 1000;
+const CACHE_MAX = 180;
 const mapDataCache = new Map();
 const panelKpiCache = new Map();
 const timeseriesCache = new Map();
@@ -27,6 +33,9 @@ const closeBtn = document.getElementById('closePanel');
 const monthStripEl = document.getElementById('monthStrip');
 const valueBoxEl = document.getElementById('valueBox');
 const modalBackdropEl = document.getElementById('modalBackdrop');
+const panelSpinnerEl = document.getElementById('panelSpinner');
+const kpiGridEl = document.getElementById('kpiGrid');
+const mapLoadingEl = document.getElementById('mapLoading');
 const timelineControls = [
   document.getElementById('toStart'),
   document.getElementById('prevMonth'),
@@ -122,20 +131,31 @@ function debounce(fn, wait = 200) {
   };
 }
 
-async function fetchJson(url) {
-  const res = await fetch(url);
+async function fetchJson(url, options = {}) {
+  const res = await fetch(url, options);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
-async function fetchCached(cache, key, urlBuilder) {
-  if (cache.has(key)) return cache.get(key);
-  const request = fetchJson(urlBuilder())
+function pruneCache(cache) {
+  if (cache.size <= CACHE_MAX) return;
+  const firstKey = cache.keys().next().value;
+  if (firstKey) cache.delete(firstKey);
+}
+
+async function fetchCached(cache, key, urlBuilder, options = {}) {
+  const now = Date.now();
+  const cached = cache.get(key);
+  if (cached && (now - cached.ts) < CACHE_TTL_MS) return cached.promise;
+
+  const request = fetchJson(urlBuilder(), options)
     .catch((error) => {
       cache.delete(key);
       throw error;
     });
-  cache.set(key, request);
+
+  cache.set(key, { ts: now, promise: request });
+  pruneCache(cache);
   return request;
 }
 
@@ -240,6 +260,26 @@ function renderPanelLoading(featureName = 'ناحیه') {
   });
 }
 
+function togglePanelSpinner(show) {
+  if (!panelSpinnerEl) return;
+  panelSpinnerEl.classList.toggle('d-none', !show);
+}
+
+function toggleMapLoading(show) {
+  if (!mapLoadingEl) return;
+  mapLoadingEl.classList.toggle('show', show);
+}
+
+function preloadLikelyMapRequests(level, index, baseMonth) {
+  [-1, 1].forEach((offset) => {
+    const nextMonth = addMonth(baseMonth, offset);
+    const mapKey = `${level}|${index}|${nextMonth}`;
+    fetchCached(mapDataCache, mapKey, () => `${API}/mapdata?level=${level}&index=${index}&date=${nextMonth}`)
+      .catch(() => {});
+  });
+}
+
+
 function setTimelineDisabled(disabled) {
   timelineControls.forEach((el) => {
     if (!el) return;
@@ -305,7 +345,8 @@ function calculateTrendLine(data) {
 
 function renderChart(ts, indexLabel) {
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
-  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}`;
+  const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
+  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
     const parsedData = ts.map((d) => [d.date, Number(d.value)]);
@@ -321,9 +362,16 @@ function renderChart(ts, indexLabel) {
   const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
 
   const chartDom = document.getElementById('tsChart');
+  if (lastChartRenderKey !== derivedKey && chart) {
+    chart.dispose();
+    chart = null;
+  }
   if (!chart) {
     chart = echarts.init(chartDom);
+  }
+  if (!chartResizeBound) {
     window.addEventListener('resize', () => chart && chart.resize());
+    chartResizeBound = true;
   }
 
   const markLineData = [
@@ -460,6 +508,7 @@ function renderChart(ts, indexLabel) {
   currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
   currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
   chart.setOption(option, true);
+  lastChartRenderKey = derivedKey;
 }
 
 function addMapLegend() {
@@ -501,15 +550,25 @@ async function loadMap() {
   const index = indexEl.value;
   const date = dateEl.value;
   const reqId = ++mapRequestSeq;
+  if (mapAbortController) mapAbortController.abort();
+  mapAbortController = new AbortController();
+  toggleMapLoading(true);
 
   let data = { type: 'FeatureCollection', features: [] };
   try {
     const mapKey = `${level}|${index}|${date}`;
-    data = await fetchCached(mapDataCache, mapKey, () => `${API}/mapdata?level=${level}&index=${index}&date=${date}`);
+    data = await fetchCached(
+      mapDataCache,
+      mapKey,
+      () => `${API}/mapdata?level=${level}&index=${index}&date=${date}`,
+      { signal: mapAbortController.signal }
+    );
+    preloadLikelyMapRequests(level, index, date);
   } catch (_) {}
 
-  if (reqId !== mapRequestSeq) return;
+  if (reqId !== mapRequestSeq) { toggleMapLoading(false); return; }
 
+  toggleMapLoading(false);
   latestMapFeatures = data.features || [];
   if (geoLayer) map.removeLayer(geoLayer);
 
@@ -541,6 +600,7 @@ async function onRegionClick(feature) {
     const featureName = feature?.properties?.name || 'ناحیه';
     setPanelOpen(true);
     renderPanelLoading(featureName);
+    togglePanelSpinner(true);
     setTimelineDisabled(false);
     setNoDataMessage(false);
 
@@ -549,22 +609,34 @@ async function onRegionClick(feature) {
     lastPanelQueryKey = queryKey;
 
     const reqId = ++panelRequestSeq;
-    let kpi = { error: 'No series found' }; let ts = [];
+    if (panelAbortController) panelAbortController.abort();
+    panelAbortController = new AbortController();
+    let kpi = { error: 'No series found' }; let ts = []; let tsAll = [];
     try {
-      const seriesKey = `${regionId}|${levelName}|${indexName}`;
-      const kpiKey = `${seriesKey}|${dateEl.value}`;
-      [kpi, ts] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`),
-        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
+      const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      [kpi, ts, tsAll] = await Promise.all([
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
+      if (window.htmx && kpiGridEl) {
+        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, {
+          target: '#kpiGrid',
+          swap: 'innerHTML'
+        });
+      }
     } catch (_) {}
 
     if (reqId !== panelRequestSeq) return;
 
     const normalizedSeries = normalizeTimeseries(ts);
-    const { minDate, maxDate } = getDateRangeFromTimeseries(normalizedSeries);
+    const normalizedAllSeries = normalizeTimeseries(tsAll);
+    const rangeSeries = normalizedAllSeries.length ? normalizedAllSeries : normalizedSeries;
+    const { minDate, maxDate } = getDateRangeFromTimeseries(rangeSeries);
 
-    if (!normalizedSeries.length) {
+    if (!rangeSeries.length) {
       setTimelineDisabled(true);
       setNoDataMessage(true, 'No data for this selection');
       renderKPI({
@@ -576,6 +648,7 @@ async function onRegionClick(feature) {
         trend: { tau: NaN, p_value: '-', sen_slope: NaN, trend: '—' }
       }, featureName, indexName);
       renderChart([], indexName);
+      togglePanelSpinner(false);
       return;
     }
 
@@ -602,8 +675,10 @@ async function onRegionClick(feature) {
 
     renderKPI(safeKpi, featureName, indexName);
     renderChart(normalizedSeries, indexName);
+    togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);
+    togglePanelSpinner(false);
     setPanelOpen(true);
   }
 }
@@ -638,6 +713,7 @@ function setupEvents() {
     panelKpiCache.clear();
     timeseriesCache.clear();
     derivedSeriesCache.clear();
+    lastChartRenderKey = null;
     onDateChanged();
   });
   indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
