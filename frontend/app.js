@@ -343,23 +343,23 @@ function calculateTrendLine(data) {
   return data.map((point, i) => [point[0], slope * i + intercept]);
 }
 
-function renderChart(ts, indexLabel) {
+function renderChart(ts, indexLabel, selectedMonth = dateEl.value) {
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
     const parsedData = ts.map((d) => [d.date, Number(d.value)]);
-    cachedDerived = {
-      parsedData,
-      trendData: calculateTrendLine(parsedData)
-    };
+    cachedDerived = { parsedData };
     derivedSeriesCache.set(derivedKey, cachedDerived);
   }
 
-  const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toISODate(dateEl.value);
-  const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
+  const { parsedData } = cachedDerived;
+  const selectedDate = toISODate(selectedMonth);
+  const selectedCutoff = `${selectedMonth}-31`;
+  const selectedWindowData = parsedData.filter(([d]) => d <= selectedCutoff);
+  const trendSource = selectedWindowData.length >= 2 ? selectedWindowData : parsedData;
+  const trendData = calculateTrendLine(trendSource);
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -382,9 +382,7 @@ function renderChart(ts, indexLabel) {
     { yAxis: -2.0, name: 'D4' },
   ];
 
-  if (selectedDate !== lastDate) {
-    markLineData.push({ xAxis: selectedDate, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 }, label: { show: false } });
-  }
+  markLineData.push({ xAxis: selectedDate, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 }, label: { show: false } });
 
   const option = {
     title: {
@@ -481,6 +479,7 @@ function renderChart(ts, indexLabel) {
         name: indexLabel.toUpperCase(),
         type: 'line',
         data: parsedData,
+        animation: false,
         symbol: 'none',
         lineStyle: { width: 2 },
         areaStyle: {
@@ -498,6 +497,7 @@ function renderChart(ts, indexLabel) {
         name: 'روند',
         type: 'line',
         data: trendData,
+        animation: false,
         symbol: 'none',
         lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
         itemStyle: { color: '#ef4444' }
@@ -507,7 +507,7 @@ function renderChart(ts, indexLabel) {
 
   currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
   currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
-  chart.setOption(option, true);
+  chart.setOption(option, { notMerge: true, lazyUpdate: false });
   lastChartRenderKey = derivedKey;
 }
 
@@ -674,7 +674,8 @@ async function onRegionClick(feature) {
       };
 
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(normalizedSeries, indexName);
+    const chartSeries = normalizedAllSeries.length ? normalizedAllSeries : normalizedSeries;
+    renderChart(chartSeries, indexName, dateEl.value);
     togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);
