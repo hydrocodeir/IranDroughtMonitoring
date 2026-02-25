@@ -16,10 +16,9 @@
   <header class="topbar px-3 px-lg-4 py-2 d-flex justify-content-between align-items-center">
     <div>
       <h1 class="mb-0">داشبورد پایش خشکسالی ایران</h1>
-      <small class="text-muted">نمایش شاخص‌های SPI/SPEI، دما و بارش در سطوح مدیریتی ایران</small>
+      <small class="text-muted">نمایش شاخص‌های SPI/SPEI، دما و بارش در سطوح مدیریتی ایران | تولیدکننده: HydroCode@2026</small>
     </div>
     <div class="d-none d-md-flex align-items-center gap-2">
-      <span class="badge rounded-pill text-bg-warning">پلتفرم آزمایشی</span>
       <button id="reloadTop" class="btn btn-sm btn-primary">به‌روزرسانی نقشه</button>
     </div>
   </header>
@@ -37,21 +36,20 @@
           <option value="temp">میانگین دما</option>
         </select>
       </div>
-      <div class="timeline-meta"><span class="obs">Observed</span><span class="pred">Predicted</span></div>
     </div>
 
     <aside id="insightPanel" class="insight-panel" aria-hidden="true">
       <div class="insight-header d-flex justify-content-between align-items-start">
         <button id="closePanel" class="btn btn-light shadow-sm close-panel-btn">✕</button>
         <div class="flex-grow-1 ps-2">
-          <h5 class="mb-1" id="panelTitle">Drought Insight</h5>
+          <h5 class="mb-1" id="panelTitle">نمای خشکسالی</h5>
           <div class="text-secondary small" id="panelSubtitle">برای مشاهده جزئیات روی یک ناحیه کلیک کنید.</div>
         </div>
       </div>
 
       <section id="valueBox" class="value-box mt-3">
         <div class="d-flex justify-content-between align-items-center mb-1">
-          <span id="mainMetricLabel">SPI-3 Value</span>
+          <span id="mainMetricLabel">مقدار SPI-3</span>
           <span id="severityBadge" class="severity-badge">-</span>
         </div>
         <div class="main-value" id="mainMetricValue">--</div>
@@ -60,12 +58,12 @@
       <h6 class="mt-4 mb-2">سری زمانی</h6>
       <div class="chart-wrap"><div id="tsChart"></div></div>
 
-      <h6 class="mt-4 mb-2">Trend Analysis</h6>
+      <h6 class="mt-4 mb-2">تحلیل روند</h6>
       <div class="kpi-grid">
-        <div class="kpi-card"><small>Kendall's τ</small><strong id="tauVal">--</strong></div>
-        <div class="kpi-card"><small>P-value</small><strong id="pVal">--</strong></div>
-        <div class="kpi-card"><small>Sen's Slope</small><strong id="senVal">--</strong></div>
-        <div class="kpi-card"><small>Value</small><strong id="latestVal">--</strong></div>
+        <div class="kpi-card"><small>ضریب کندال (τ)</small><strong id="tauVal">--</strong></div>
+        <div class="kpi-card"><small>مقدار p</small><strong id="pVal">--</strong></div>
+        <div class="kpi-card"><small>شیب سن</small><strong id="senVal">--</strong></div>
+        <div class="kpi-card"><small>مقدار</small><strong id="latestVal">--</strong></div>
       </div>
       <div id="trendText" class="trend-text mt-2">-</div>
     </aside>
@@ -73,19 +71,21 @@
     <div class="bottom-timeline card border-0">
       <div class="card-body p-2 d-flex align-items-center justify-content-between gap-3 flex-wrap">
         <div class="d-flex align-items-center gap-2">
+          <button id="toStart" class="btn btn-sm btn-light" title="Go to start of data range">⏮</button>
           <button id="prevMonth" class="btn btn-sm btn-light">‹</button>
           <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
           <button id="nextMonth" class="btn btn-sm btn-light">›</button>
+          <button id="toEnd" class="btn btn-sm btn-light" title="Go to end of data range">⏭</button>
         </div>
         <div class="d-flex align-items-center gap-2">
           <label class="small text-muted">محدوده جغرافیایی</label>
           <select id="level" class="form-select form-select-sm timeline-level">
             <option value="province">استان</option>
             <option value="county">شهرستان</option>
-            <option value="study_area">Study Area</option>
-            <option value="level1">Level 1</option>
-            <option value="level2">Level 2</option>
-            <option value="level3">Level 3</option>
+            <option value="study_area">حوزه مطالعاتی</option>
+            <option value="level1">سطح ۱</option>
+            <option value="level2">سطح ۲</option>
+            <option value="level3">سطح ۳</option>
           </select>
         </div>
       </div>
@@ -94,7 +94,6 @@
         <div id="monthStrip" class="month-strip"></div>
         <button id="stripNext" class="strip-nav">››</button>
       </div>
-      <div class="timeline-meta"><span class="obs">Observed</span><span class="pred">Predicted</span></div>
     </div>
   </main>
 
