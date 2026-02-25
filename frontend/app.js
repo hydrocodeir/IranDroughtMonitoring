@@ -512,6 +512,14 @@ function setupEvents() {
     if (e.key === 'Escape' && panelEl.classList.contains('open')) { lastPanelQueryKey = null; setPanelOpen(false); }
   });
 
+  if (modalBackdropEl) {
+    modalBackdropEl.addEventListener('click', () => setPanelOpen(false));
+  }
+  panelEl.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panelEl.classList.contains('open')) setPanelOpen(false);
+  });
+
   document.getElementById('search').addEventListener('input', (e) => {
     if (!geoLayer) return;
     const q = e.target.value.trim();
