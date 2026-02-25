@@ -26,15 +26,40 @@ const droughtColors = {
 };
 
 const severityLong = {
-  'Normal/Wet': 'Normal/Wet',
-  'D0': 'D0 - Abnormally Dry',
-  'D1': 'D1 - Moderate Drought',
-  'D2': 'D2 - Severe Drought',
-  'D3': 'D3 - Extreme Drought',
-  'D4': 'D4 - Exceptional Drought'
+  'Normal/Wet': 'نرمال/مرطوب',
+  'D0': 'D0 - خشکی غیرعادی',
+  'D1': 'D1 - خشکسالی متوسط',
+  'D2': 'D2 - خشکسالی شدید',
+  'D3': 'D3 - خشکسالی بسیار شدید',
+  'D4': 'D4 - خشکسالی استثنایی'
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
+
+function toPersianDigits(value) {
+  return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
+}
+
+function formatNumber(value, digits = 4) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '—';
+  const formatted = Math.abs(num).toFixed(digits).replace('.', '٫');
+  return toPersianDigits(num < 0 ? `${formatted}−` : formatted);
+}
+
+function formatPValue(value) {
+  const raw = String(value ?? '').trim();
+  const num = Number(raw);
+  if (Number.isFinite(num)) return formatNumber(num, 4);
+
+  const match = raw.match(/^([<>]=?)\s*(-?\d*\.?\d+)$/);
+  if (match) {
+    const [, sign, numberPart] = match;
+    return `${sign}${formatNumber(Number(numberPart), 4)}`;
+  }
+
+  return toPersianDigits((raw || '—').replace('.', '٫'));
+}
 
 function addMonth(yyyymm, delta) {
   const [y, m] = yyyymm.split('-').map(Number);
@@ -44,7 +69,7 @@ function addMonth(yyyymm, delta) {
 
 function toMonthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
-  const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const labels = ['ژان','فور','مار','آور','مه','ژوئن','ژوئیه','اوت','سپت','اکت','نوام','دسام'];
   return { month: labels[m - 1], year: y };
 }
 
@@ -144,22 +169,23 @@ function applySeverityStyle(sev) {
   valueBoxEl.classList.add(`sev-${key}`);
   const c = severityColor(sev);
   valueBoxEl.style.borderColor = c;
+  valueBoxEl.style.setProperty('--severity-color', c);
 }
 
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
-  document.getElementById('panelTitle').textContent = `Drought - ${dateEl.value}`;
-  document.getElementById('panelSubtitle').textContent = `Selected Region: ${featureName}`;
-  document.getElementById('mainMetricLabel').textContent = `${indexLabel.toUpperCase()} Value`;
-  document.getElementById('mainMetricValue').textContent = Number(kpi.latest ?? 0).toFixed(2);
+  document.getElementById('panelTitle').textContent = `خشکسالی - ${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
+  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
+  document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
   applySeverityStyle(sev);
 
-  document.getElementById('tauVal').textContent = Number(kpi.trend?.tau ?? 0).toFixed(3);
-  document.getElementById('pVal').textContent = (kpi.trend?.p_value ?? '-').toString();
-  document.getElementById('senVal').textContent = Number(kpi.trend?.sen_slope ?? 0).toFixed(4);
-  document.getElementById('latestVal').textContent = Number(kpi.latest ?? 0).toFixed(2);
-  document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
+  document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
+  document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
+  document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
+  document.getElementById('latestVal').textContent = formatNumber(kpi.latest);
+  document.getElementById('trendText').textContent = `روند: ${(kpi.trend?.trend === 'decreasing' ? 'کاهشی' : kpi.trend?.trend === 'increasing' ? 'افزایشی' : kpi.trend?.trend === 'no trend' ? 'بدون روند' : (kpi.trend?.trend || '—'))} | میانگین: ${formatNumber(kpi.mean)} | کمینه: ${formatNumber(kpi.min)} | بیشینه: ${formatNumber(kpi.max)}`;
 }
 
 function calculateTrendLine(data) {
@@ -209,13 +235,22 @@ function renderChart(ts, indexLabel) {
 
   const option = {
     title: {
-      text: 'Time Series',
+      text: 'سری زمانی',
       left: 'left',
       textStyle: { fontWeight: 'bold', fontSize: 20, color: '#1f2937' }
     },
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' }
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const entries = Array.isArray(params) ? params : [params];
+        const axisValue = toPersianDigits((entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '').replace(/-/g, '/'));
+        const rows = entries.map((item) => {
+          const value = Array.isArray(item.value) ? item.value[1] : item.value;
+          return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
+        });
+        return [axisValue, ...rows].join('<br/>');
+      }
     },
     legend: {
       top: 4,
@@ -233,7 +268,7 @@ function renderChart(ts, indexLabel) {
       type: 'time',
       boundaryGap: false,
       axisLabel: {
-        formatter: '{yyyy}-{MM}',
+        formatter: (value) => toPersianDigits(String(value).slice(0, 7).replace(/-/g, '/')),
         rotate: 45,
         color: '#6b7280'
       },
@@ -245,7 +280,10 @@ function renderChart(ts, indexLabel) {
       min: -3,
       max: 2,
       interval: 1,
-      axisLabel: { color: '#6b7280' },
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => toPersianDigits(String(value).replace('-', '−').replace('.', '٫'))
+      },
       splitLine: {
         show: true,
         lineStyle: { color: '#e5e7eb' }
@@ -298,7 +336,7 @@ function renderChart(ts, indexLabel) {
         }
       },
       {
-        name: 'Trend',
+        name: 'روند',
         type: 'line',
         data: trendData,
         symbol: 'none',
@@ -362,7 +400,7 @@ async function loadMap() {
   geoLayer = L.geoJSON(data, {
     style: f => ({ color: '#334155', weight: 1, fillOpacity: 0.78, fillColor: severityColor(f.properties.severity) }),
     onEachFeature: (feature, layer) => {
-      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>${index.toUpperCase()}: ${Number(feature.properties.value).toFixed(2)}<br>${feature.properties.severity}</div>`);
+      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${formatNumber(feature.properties.value)}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
       layer.on('click', () => onRegionClick(feature));
     }
   }).addTo(map);
@@ -375,7 +413,7 @@ async function onRegionClick(feature) {
     selectedFeature = feature;
     const regionId = feature?.properties?.id;
     const indexName = indexEl.value;
-    const featureName = feature?.properties?.name || 'Region';
+    const featureName = feature?.properties?.name || 'ناحیه';
     setPanelOpen(true);
 
     let kpi; let ts;
@@ -386,11 +424,11 @@ async function onRegionClick(feature) {
       ]);
     } catch (_) {
       const val = Number(feature?.properties?.value ?? 0);
-      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || classify(val), trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'decreasing' } };
+      kpi = { latest: val, min: val - 1, max: val + 1, mean: val, severity: feature?.properties?.severity || classify(val), trend: { tau: -0.178, p_value: '<0.001', sen_slope: -0.001, trend: 'کاهشی' } };
       ts = fallbackTimeSeries(val);
     }
 
-    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || classify(Number(feature?.properties?.value ?? 0)), trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'no trend' } };
+    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error) ? kpi : { latest: Number(feature?.properties?.value ?? 0), min: Number(feature?.properties?.value ?? 0)-1, max: Number(feature?.properties?.value ?? 0)+1, mean: Number(feature?.properties?.value ?? 0), severity: feature?.properties?.severity || classify(Number(feature?.properties?.value ?? 0)), trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' } };
 
     safeKpi.latest = Number(feature?.properties?.value ?? safeKpi.latest ?? 0);
     safeKpi.severity = feature?.properties?.severity || safeKpi.severity || classify(safeKpi.latest);
