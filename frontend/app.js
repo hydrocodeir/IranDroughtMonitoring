@@ -55,13 +55,13 @@ const droughtColors = {
   'Normal/Wet': '#86efac'
 };
 
-const DROUGHT_THRESHOLD_LINES = [
+const DROUGHT_THRESHOLD_LINES = Object.freeze([
   { yAxis: -0.5, name: 'D0' },
   { yAxis: -0.8, name: 'D1' },
   { yAxis: -1.3, name: 'D2' },
   { yAxis: -1.6, name: 'D3' },
   { yAxis: -2.0, name: 'D4' },
-];
+]);
 
 
 function populateIndexOptions() {
@@ -125,7 +125,11 @@ function toMonthLabel(yyyymm) {
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
-function toUTCMonthStart(yyyymm) { return `${yyyymm}-01T00:00:00Z`; }
+function toChartMonthStart(yyyymm) { return `${yyyymm}-01`; }
+
+function toDisplayMonth(yyyymm) { return addMonth(yyyymm, 1); }
+
+function fromDisplayMonth(yyyymm) { return addMonth(yyyymm, -1); }
 
 function formatChartDate(value) {
   const raw = String(value || '');
@@ -207,20 +211,22 @@ function getTrendLine(values) {
 
 function buildMonthStrip(centerMonth) {
   monthStripEl.innerHTML = '';
+  const displayCenterMonth = toDisplayMonth(centerMonth);
   const minDate = dateEl.min || null;
   const maxDate = dateEl.max || null;
   for (let i = -18; i <= 18; i += 1) {
-    const m = addMonth(centerMonth, i);
-    const { month, year } = toMonthLabel(m);
+    const displayMonth = addMonth(displayCenterMonth, i);
+    const sourceMonth = fromDisplayMonth(displayMonth);
+    const { month, year } = toMonthLabel(displayMonth);
     const btn = document.createElement('button');
-    const outOfRange = (minDate && m < minDate) || (maxDate && m > maxDate);
-    btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
+    const outOfRange = (minDate && sourceMonth < minDate) || (maxDate && sourceMonth > maxDate);
+    btn.className = `month-chip ${displayMonth === displayCenterMonth ? 'active' : ''}`;
     btn.disabled = outOfRange;
-    btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
+    btn.innerHTML = `${month}${(displayMonth.endsWith('-01') || displayMonth.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
       if (outOfRange) return;
       lastPanelQueryKey = null;
-      dateEl.value = m;
+      dateEl.value = sourceMonth;
       debouncedDateChanged();
     };
     monthStripEl.appendChild(btn);
@@ -248,7 +254,7 @@ function applySeverityStyle(sev) {
 
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
@@ -263,7 +269,7 @@ function renderKPI(kpi, featureName, indexLabel) {
 }
 
 function renderPanelLoading(featureName = 'ناحیه') {
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = '...';
@@ -372,7 +378,7 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toUTCMonthStart(dateEl.value);
+  const selectedDate = toChartMonthStart(toDisplayMonth(dateEl.value));
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -388,16 +394,20 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    ...DROUGHT_THRESHOLD_LINES,
+    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })),
     {
+      name: 'Selected month',
       xAxis: selectedDate,
-      lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 },
+      lineStyle: { color: '#2563eb', type: 'dashed', width: 1.8 },
       label: { show: false }
     }
   ];
 
 
   const option = {
+    animation: false,
+    animationDuration: 0,
+    animationDurationUpdate: 0,
     title: {
       text: '',
       left: 'left',
@@ -503,7 +513,9 @@ function renderChart(ts, indexLabel) {
           origin: 0,
           opacity: 0.7
         },
+        animation: false,
         markLine: {
+          animation: false,
           symbol: ['none', 'none'],
           label: { position: 'end', formatter: '{b}', color: '#374151', fontSize: 12 },
           lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
@@ -515,6 +527,7 @@ function renderChart(ts, indexLabel) {
         type: 'line',
         data: trendData,
         symbol: 'none',
+        animation: false,
         lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
         itemStyle: { color: '#ef4444' }
       }
@@ -631,9 +644,9 @@ async function onRegionClick(feature) {
     try {
       const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
-      const kpiKey = `${regionId}|${levelName}|${indexName}|all`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal }),
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
@@ -677,17 +690,30 @@ async function onRegionClick(feature) {
       return;
     }
 
+    const latestVisiblePoint = normalizedSeries.length ? normalizedSeries[normalizedSeries.length - 1] : null;
+    const latestVisibleValue = Number(latestVisiblePoint?.value);
     const val = Number(feature?.properties?.value);
+    const resolvedLatest = Number.isFinite(latestVisibleValue)
+      ? latestVisibleValue
+      : (Number.isFinite(val) ? val : NaN);
+
     const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
       ? kpi
       : {
-        latest: Number.isFinite(val) ? val : 0,
-        min: Number.isFinite(val) ? val : 0,
-        max: Number.isFinite(val) ? val : 0,
-        mean: Number.isFinite(val) ? val : 0,
+        latest: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        min: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        max: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
+        mean: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
         severity: feature?.properties?.severity || 'N/A',
         trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' }
       };
+
+    if (Number.isFinite(resolvedLatest)) {
+      safeKpi.latest = resolvedLatest;
+      if (!safeKpi.severity || safeKpi.severity === 'N/A') {
+        safeKpi.severity = classify(resolvedLatest);
+      }
+    }
 
     renderKPI(safeKpi, featureName, indexName);
     renderChart(rangeSeries, indexName);
