@@ -235,7 +235,7 @@ function renderChart(ts, indexLabel) {
 
   const option = {
     title: {
-      text: 'سری زمانی',
+      text: '',
       left: 'left',
       textStyle: { fontWeight: 'bold', fontSize: 20, color: '#1f2937' }
     },
