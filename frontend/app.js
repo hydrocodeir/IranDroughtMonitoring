@@ -631,14 +631,14 @@ async function onRegionClick(feature) {
     try {
       const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
-      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+      const kpiKey = `${regionId}|${levelName}|${indexName}|all`;
       [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
       if (window.htmx && kpiGridEl) {
-        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, {
+        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}`, {
           target: '#kpiGrid',
           swap: 'innerHTML'
         });
