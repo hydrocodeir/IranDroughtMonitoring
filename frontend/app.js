@@ -108,12 +108,12 @@ function fallbackGeoJSON(dateRef = dateEl.value) {
       {
         type: 'Feature',
         geometry: { type: 'Polygon', coordinates: [[[50.9,35.3],[52.0,35.3],[52.0,36.2],[50.9,36.2],[50.9,35.3]]] },
-        properties: { id: 1, name: 'Tehran', value: Number(tehranValue.toFixed(2)), severity: classify(tehranValue) }
+        properties: { id: 1, name: 'Tehran', value: Number(tehranValue.toFixed(4)), severity: classify(tehranValue) }
       },
       {
         type: 'Feature',
         geometry: { type: 'Polygon', coordinates: [[[50.1,31.4],[52.7,31.4],[52.7,33.8],[50.1,33.8],[50.1,31.4]]] },
-        properties: { id: 2, name: 'Isfahan', value: Number(isfahanValue.toFixed(2)), severity: classify(isfahanValue) }
+        properties: { id: 2, name: 'Isfahan', value: Number(isfahanValue.toFixed(4)), severity: classify(isfahanValue) }
       }
     ]
   };
@@ -154,8 +154,7 @@ function buildMonthStrip(centerMonth) {
     const m = addMonth(centerMonth, i);
     const { month, year } = toMonthLabel(m);
     const btn = document.createElement('button');
-    const isPred = m >= centerMonth;
-    btn.className = `month-chip ${m === centerMonth ? 'active' : ''} ${isPred ? 'predicted' : ''}`;
+    btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
     btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
       dateEl.value = m;
@@ -234,7 +233,6 @@ function renderChart(ts, indexLabel) {
     { yAxis: -1.3, name: 'D2' },
     { yAxis: -1.6, name: 'D3' },
     { yAxis: -2.0, name: 'D4' },
-    { xAxis: lastDate, lineStyle: { color: '#3498db', type: 'dashed', width: 2 }, label: { show: false } }
   ];
 
   if (selectedDate !== lastDate) {
@@ -262,7 +260,7 @@ function renderChart(ts, indexLabel) {
       }
     },
     legend: {
-      top: 4,
+      top: 0,
       right: 8,
       textStyle: { color: '#4b5563' }
     },
@@ -296,7 +294,7 @@ function renderChart(ts, indexLabel) {
       interval: 1,
       axisLabel: {
         color: '#6b7280',
-        formatter: (value) => toPersianDigits(String(value).replace('-', '−').replace('.', '٫'))
+        formatter: (value) => formatNumber(value)
       },
       splitLine: {
         show: true,
