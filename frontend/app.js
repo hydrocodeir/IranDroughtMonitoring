@@ -9,6 +9,9 @@ let selectedFeature = null;
 let latestMapFeatures = [];
 let currentRangeStart = null;
 let currentRangeEnd = null;
+let mapRequestSeq = 0;
+let panelRequestSeq = 0;
+let lastPanelQueryKey = null;
 
 const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
@@ -390,10 +393,14 @@ async function loadMap() {
   const level = levelEl.value;
   const index = indexEl.value;
   const date = dateEl.value;
+  const reqId = ++mapRequestSeq;
+
   let data = { type: 'FeatureCollection', features: [] };
   try {
     data = await fetchJson(`${API}/mapdata?level=${level}&index=${index}&date=${date}`);
   } catch (_) {}
+
+  if (reqId !== mapRequestSeq) return;
 
   latestMapFeatures = data.features || [];
   if (geoLayer) map.removeLayer(geoLayer);
@@ -426,6 +433,11 @@ async function onRegionClick(feature) {
     const featureName = feature?.properties?.name || 'ناحیه';
     setPanelOpen(true);
 
+    const queryKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
+    if (lastPanelQueryKey === queryKey && panelEl.classList.contains('open')) return;
+    lastPanelQueryKey = queryKey;
+
+    const reqId = ++panelRequestSeq;
     let kpi = { error: 'No series found' }; let ts = [];
     try {
       [kpi, ts] = await Promise.all([
@@ -433,6 +445,8 @@ async function onRegionClick(feature) {
         fetchJson(`${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
       ]);
     } catch (_) {}
+
+    if (reqId !== panelRequestSeq) return;
 
     const val = Number(feature?.properties?.value);
     const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
@@ -470,9 +484,9 @@ async function onDateChanged() {
 
 function setupEvents() {
   document.getElementById('reloadTop').addEventListener('click', onDateChanged);
-  indexEl.addEventListener('change', async () => { await onDateChanged(); });
-  levelEl.addEventListener('change', onDateChanged);
-  dateEl.addEventListener('change', onDateChanged);
+  indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
+  levelEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
+  dateEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
 
   document.getElementById('prevMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
   document.getElementById('nextMonth').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
@@ -491,7 +505,12 @@ function setupEvents() {
   document.getElementById('stripPrev').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
   document.getElementById('stripNext').addEventListener('click', () => { dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
 
-  closeBtn.addEventListener('click', () => setPanelOpen(false));
+  closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
+
+  panelEl.addEventListener('click', (e) => e.stopPropagation());
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panelEl.classList.contains('open')) { lastPanelQueryKey = null; setPanelOpen(false); }
+  });
 
   if (modalBackdropEl) {
     modalBackdropEl.addEventListener('click', () => setPanelOpen(false));

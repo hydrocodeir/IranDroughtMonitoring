@@ -49,6 +49,26 @@ def _read_csv(path: Path) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+
+
+def _sanitize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    out = df.copy()
+    out.columns = [str(c).strip().replace("﻿", "").lower() for c in out.columns]
+    return out
+
+
+def _resolve_index_col(df: pd.DataFrame, index: str) -> str | None:
+    if df.empty:
+        return None
+    key = str(index or "").strip().lower()
+    if key in df.columns:
+        return key
+    normalized = {c.replace("-", "").replace("_", ""): c for c in df.columns}
+    return normalized.get(key.replace("-", "").replace("_", ""))
+
+
 def _extract_feature_props(kind: str, feature: dict[str, Any], fallback_id: int) -> dict[str, Any]:
     props = feature.get("properties") or {}
     id_candidates = ["station_id", "unit_id", "id", "code", "name", "station_name", "boundary"]
@@ -91,7 +111,7 @@ def load_user_bundle(level: str) -> DataBundle | None:
         return None
 
     features = _read_geojson(geojson_path)
-    df = _read_csv(csv_path)
+    df = _sanitize_columns(_read_csv(csv_path))
     if df.empty:
         df = pd.DataFrame(columns=["date"])
     if "date" in df.columns:
@@ -130,15 +150,16 @@ def map_features(level: str, date: str, index: str, classify_fn) -> list[dict[st
     target_month = _normalize_month(date)
     df = bundle.df
     id_col = bundle.id_col
+    index_col = _resolve_index_col(df, index)
 
     out = []
     for feature in bundle.features:
         props = dict(feature.get("properties") or {})
         value = None
-        if id_col and index in df.columns and "month_key" in df.columns and target_month:
+        if id_col and index_col and "month_key" in df.columns and target_month:
             rows = df[(df[id_col] == str(props.get("id"))) & (df["month_key"] == target_month)]
             if not rows.empty:
-                raw = pd.to_numeric(rows.iloc[-1][index], errors="coerce")
+                raw = pd.to_numeric(rows.iloc[-1][index_col], errors="coerce")
                 if pd.notna(raw):
                     value = float(raw)
 
@@ -151,14 +172,17 @@ def map_features(level: str, date: str, index: str, classify_fn) -> list[dict[st
 
 def extract_timeseries(region_id: str | int, level: str, index: str) -> list[dict[str, Any]]:
     bundle = load_user_bundle(level)
-    if not bundle or not bundle.id_col or index not in bundle.df.columns or "date" not in bundle.df.columns:
+    if not bundle or not bundle.id_col or "date" not in bundle.df.columns:
         return []
 
     df = bundle.df
+    index_col = _resolve_index_col(df, index)
+    if not index_col:
+        return []
     rows = df[df[bundle.id_col] == str(region_id)].copy()
     if rows.empty:
         return []
     rows["date"] = pd.to_datetime(rows["date"], errors="coerce")
-    rows[index] = pd.to_numeric(rows[index], errors="coerce")
-    rows = rows.dropna(subset=["date", index]).sort_values("date")
-    return [{"date": r["date"].date().isoformat(), "value": float(r[index])} for _, r in rows.iterrows()]
+    rows[index_col] = pd.to_numeric(rows[index_col], errors="coerce")
+    rows = rows.dropna(subset=["date", index_col]).sort_values("date")
+    return [{"date": r["date"].date().isoformat(), "value": float(r[index_col])} for _, r in rows.iterrows()]

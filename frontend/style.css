@@ -82,5 +82,5 @@ body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
 }
 .modal-backdrop-custom.open {
   opacity: 1;
-  pointer-events: auto;
+  pointer-events: none;
 }
