@@ -69,7 +69,7 @@ function addMonth(yyyymm, delta) {
 
 function toMonthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
-  const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const labels = ['ژان','فور','مار','آور','مه','ژوئن','ژوئیه','اوت','سپت','اکت','نوام','دسام'];
   return { month: labels[m - 1], year: y };
 }
 
@@ -235,7 +235,7 @@ function renderChart(ts, indexLabel) {
 
   const option = {
     title: {
-      text: 'Time Series',
+      text: 'سری زمانی',
       left: 'left',
       textStyle: { fontWeight: 'bold', fontSize: 20, color: '#1f2937' }
     },
@@ -268,7 +268,7 @@ function renderChart(ts, indexLabel) {
       type: 'time',
       boundaryGap: false,
       axisLabel: {
-        formatter: '{yyyy}-{MM}',
+        formatter: (value) => toPersianDigits(String(value).slice(0, 7).replace(/-/g, '/')),
         rotate: 45,
         color: '#6b7280'
       },
@@ -280,7 +280,10 @@ function renderChart(ts, indexLabel) {
       min: -3,
       max: 2,
       interval: 1,
-      axisLabel: { color: '#6b7280' },
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => toPersianDigits(String(value).replace('-', '−').replace('.', '٫'))
+      },
       splitLine: {
         show: true,
         lineStyle: { color: '#e5e7eb' }
@@ -333,7 +336,7 @@ function renderChart(ts, indexLabel) {
         }
       },
       {
-        name: 'Trend',
+        name: 'روند',
         type: 'line',
         data: trendData,
         symbol: 'none',
