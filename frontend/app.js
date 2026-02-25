@@ -294,7 +294,10 @@ function renderChart(ts, indexLabel) {
       min: -3,
       max: 2,
       interval: 1,
-      axisLabel: { color: '#6b7280' },
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => toPersianDigits(String(value).replace('-', '−').replace('.', '٫'))
+      },
       splitLine: {
         show: true,
         lineStyle: { color: '#e5e7eb' }
@@ -347,7 +350,7 @@ function renderChart(ts, indexLabel) {
         }
       },
       {
-        name: 'Trend',
+        name: 'روند',
         type: 'line',
         data: trendData,
         symbol: 'none',
