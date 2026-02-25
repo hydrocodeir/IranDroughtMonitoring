@@ -244,10 +244,10 @@ function renderChart(ts, indexLabel) {
       axisPointer: { type: 'cross' },
       formatter: (params) => {
         const entries = Array.isArray(params) ? params : [params];
-        const axisValue = toPersianDigits((entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '').replace(/-/g, '/'));
+        const axisValue = entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '';
         const rows = entries.map((item) => {
           const value = Array.isArray(item.value) ? item.value[1] : item.value;
-          return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
+          return `${item.marker}${item.seriesName}: ${Number(value).toFixed(4)}`;
         });
         return [axisValue, ...rows].join('<br/>');
       }
