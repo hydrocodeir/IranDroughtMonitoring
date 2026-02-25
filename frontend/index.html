@@ -34,6 +34,7 @@
     </div>
 
     <div id="modalBackdrop" class="modal-backdrop-custom" aria-hidden="true"></div>
+    <div id="mapLoading" class="map-loading"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری نقشه...</span></div>
 
     <aside id="insightPanel" class="insight-panel" aria-hidden="true">
       <div class="insight-header d-flex justify-content-between align-items-start">
@@ -55,7 +56,8 @@
       <div class="chart-wrap"><div id="tsChart"></div></div>
 
       <h6 class="mt-4 mb-2">تحلیل روند</h6>
-      <div class="kpi-grid">
+      <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری...</span></div>
+      <div id="kpiGrid" class="kpi-grid" hx-swap="innerHTML">
         <div class="kpi-card"><small>ضریب کندال (τ)</small><strong id="tauVal">--</strong></div>
         <div class="kpi-card"><small>مقدار p</small><strong id="pVal">--</strong></div>
         <div class="kpi-card"><small>شیب سن</small><strong id="senVal">--</strong></div>
