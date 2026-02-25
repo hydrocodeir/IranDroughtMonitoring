@@ -55,6 +55,14 @@ const droughtColors = {
   'Normal/Wet': '#86efac'
 };
 
+const DROUGHT_THRESHOLD_LINES = [
+  { yAxis: -0.5, name: 'D0' },
+  { yAxis: -0.8, name: 'D1' },
+  { yAxis: -1.3, name: 'D2' },
+  { yAxis: -1.6, name: 'D3' },
+  { yAxis: -2.0, name: 'D4' },
+];
+
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -117,10 +125,16 @@ function toMonthLabel(yyyymm) {
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
+function toUTCMonthStart(yyyymm) { return `${yyyymm}-01T00:00:00Z`; }
+
 function formatChartDate(value) {
+  const raw = String(value || '');
+  const directMonth = raw.match(/^(\d{4}-\d{2})/);
+  if (directMonth) return directMonth[1];
+
   const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return String(value || '');
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  if (Number.isNaN(dt.getTime())) return raw;
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function debounce(fn, wait = 200) {
@@ -349,7 +363,7 @@ function renderChart(ts, indexLabel) {
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
-    const parsedData = ts.map((d) => [d.date, Number(d.value)]);
+    const parsedData = ts.map((d) => [String(d.date).includes('T') ? d.date : `${d.date}T00:00:00Z`, Number(d.value)]);
     cachedDerived = {
       parsedData,
       trendData: calculateTrendLine(parsedData)
@@ -358,8 +372,7 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toISODate(dateEl.value);
-  const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
+  const selectedDate = toUTCMonthStart(dateEl.value);
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -375,16 +388,14 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    { yAxis: -0.5, name: 'D0' },
-    { yAxis: -0.8, name: 'D1' },
-    { yAxis: -1.3, name: 'D2' },
-    { yAxis: -1.6, name: 'D3' },
-    { yAxis: -2.0, name: 'D4' },
+    ...DROUGHT_THRESHOLD_LINES,
+    {
+      xAxis: selectedDate,
+      lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 },
+      label: { show: false }
+    }
   ];
 
-  if (selectedDate !== lastDate) {
-    markLineData.push({ xAxis: selectedDate, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 }, label: { show: false } });
-  }
 
   const option = {
     title: {
@@ -465,15 +476,20 @@ function renderChart(ts, indexLabel) {
     },
     dataZoom: [
       {
+        type: 'inside',
+        filterMode: 'none'
+      },
+      {
         type: 'slider',
         show: true,
-        start: 0,
-        end: 100,
+        startValue: parsedData[Math.max(parsedData.length - 60, 0)]?.[0],
+        endValue: parsedData[parsedData.length - 1]?.[0],
         bottom: 10,
         height: 25,
         borderColor: '#d1d5db',
         fillerColor: 'rgba(167, 183, 204, 0.4)',
-        handleStyle: { color: '#a7b7cc' }
+        handleStyle: { color: '#a7b7cc' },
+        filterMode: 'none'
       }
     ],
     series: [
@@ -505,8 +521,8 @@ function renderChart(ts, indexLabel) {
     ]
   };
 
-  currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
-  currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
+  currentRangeStart = parsedData.length ? formatChartDate(parsedData[0][0]) : null;
+  currentRangeEnd = parsedData.length ? formatChartDate(parsedData[parsedData.length - 1][0]) : null;
   chart.setOption(option, true);
   lastChartRenderKey = derivedKey;
 }
@@ -674,7 +690,7 @@ async function onRegionClick(feature) {
       };
 
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(normalizedSeries, indexName);
+    renderChart(rangeSeries, indexName);
     togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);

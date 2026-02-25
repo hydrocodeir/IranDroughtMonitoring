@@ -65,31 +65,33 @@ async def get_timeseries(region_id: str, level: str = "province", index: str = "
 
 @app.get("/kpi")
 async def get_kpi(region_id: str, level: str = "province", index: str = "spi3", date: str | None = None):
-    base_key = f"kpi:{level}:{index}:{region_id}:{date or 'all'}"
+    base_key = f"kpi:{level}:{index}:{region_id}:all"
 
     def _builder():
         ts = extract_timeseries(region_id, level, index)
         if not ts:
             return {"error": "No series found"}
 
-        rows = ts
-        if date:
-            try:
-                target_key = datetime.strptime(date, "%Y-%m").strftime("%Y-%m")
-                rows = [r for r in ts if datetime.fromisoformat(r["date"]).strftime("%Y-%m") <= target_key]
-            except Exception:
-                rows = ts
-
-        values = [float(r["value"]) for r in rows]
+        values = [float(r["value"]) for r in ts]
         if not values:
             return {"error": "No series found"}
 
         trend = mann_kendall_and_sen(values)
-        latest_val = values[-1]
+
+        selected_rows = ts
+        if date:
+            try:
+                target_key = datetime.strptime(date, "%Y-%m").strftime("%Y-%m")
+                selected_rows = [r for r in ts if datetime.fromisoformat(r["date"]).strftime("%Y-%m") <= target_key]
+            except Exception:
+                selected_rows = ts
+
+        display_values = [float(r["value"]) for r in selected_rows] or values
+        latest_val = display_values[-1]
         return {
-            "min": min(values),
-            "max": max(values),
-            "mean": sum(values) / len(values),
+            "min": min(display_values),
+            "max": max(display_values),
+            "mean": sum(display_values) / len(display_values),
             "latest": latest_val,
             "severity": drought_class(latest_val) if index.lower().startswith(("spi", "spei")) else "N/A",
             "trend": trend,
