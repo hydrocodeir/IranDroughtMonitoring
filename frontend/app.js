@@ -127,6 +127,10 @@ function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
 function toChartMonthStart(yyyymm) { return `${yyyymm}-01`; }
 
+function toDisplayMonth(yyyymm) { return addMonth(yyyymm, 1); }
+
+function fromDisplayMonth(yyyymm) { return addMonth(yyyymm, -1); }
+
 function formatChartDate(value) {
   const raw = String(value || '');
   const directMonth = raw.match(/^(\d{4}-\d{2})/);
@@ -207,20 +211,22 @@ function getTrendLine(values) {
 
 function buildMonthStrip(centerMonth) {
   monthStripEl.innerHTML = '';
+  const displayCenterMonth = toDisplayMonth(centerMonth);
   const minDate = dateEl.min || null;
   const maxDate = dateEl.max || null;
   for (let i = -18; i <= 18; i += 1) {
-    const m = addMonth(centerMonth, i);
-    const { month, year } = toMonthLabel(m);
+    const displayMonth = addMonth(displayCenterMonth, i);
+    const sourceMonth = fromDisplayMonth(displayMonth);
+    const { month, year } = toMonthLabel(displayMonth);
     const btn = document.createElement('button');
-    const outOfRange = (minDate && m < minDate) || (maxDate && m > maxDate);
-    btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
+    const outOfRange = (minDate && sourceMonth < minDate) || (maxDate && sourceMonth > maxDate);
+    btn.className = `month-chip ${displayMonth === displayCenterMonth ? 'active' : ''}`;
     btn.disabled = outOfRange;
-    btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
+    btn.innerHTML = `${month}${(displayMonth.endsWith('-01') || displayMonth.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
       if (outOfRange) return;
       lastPanelQueryKey = null;
-      dateEl.value = m;
+      dateEl.value = sourceMonth;
       debouncedDateChanged();
     };
     monthStripEl.appendChild(btn);
@@ -248,7 +254,7 @@ function applySeverityStyle(sev) {
 
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
@@ -263,7 +269,7 @@ function renderKPI(kpi, featureName, indexLabel) {
 }
 
 function renderPanelLoading(featureName = 'ناحیه') {
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = '...';
@@ -372,7 +378,7 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toChartMonthStart(dateEl.value);
+  const selectedDate = toChartMonthStart(toDisplayMonth(dateEl.value));
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
