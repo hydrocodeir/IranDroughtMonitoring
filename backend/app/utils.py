@@ -16,6 +16,14 @@ def drought_class(value: float) -> str:
 
 
 def mann_kendall_and_sen(values):
+    if len(values) < 2:
+        return {
+            "tau": 0.0,
+            "p_value": 1.0,
+            "sen_slope": 0.0,
+            "trend": "no trend",
+        }
+
     result = mk.original_test(values)
     return {
         "tau": float(result.Tau),

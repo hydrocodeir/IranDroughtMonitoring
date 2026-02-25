@@ -12,6 +12,12 @@ let currentRangeEnd = null;
 let mapRequestSeq = 0;
 let panelRequestSeq = 0;
 let lastPanelQueryKey = null;
+let mapUpdateDebounce = null;
+
+const mapDataCache = new Map();
+const panelKpiCache = new Map();
+const timeseriesCache = new Map();
+const derivedSeriesCache = new Map();
 
 const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
@@ -21,6 +27,15 @@ const closeBtn = document.getElementById('closePanel');
 const monthStripEl = document.getElementById('monthStrip');
 const valueBoxEl = document.getElementById('valueBox');
 const modalBackdropEl = document.getElementById('modalBackdrop');
+const timelineControls = [
+  document.getElementById('toStart'),
+  document.getElementById('prevMonth'),
+  document.getElementById('date'),
+  document.getElementById('nextMonth'),
+  document.getElementById('toEnd'),
+  document.getElementById('stripPrev'),
+  document.getElementById('stripNext')
+];
 
 const droughtColors = {
   'D4': '#7f1d1d',
@@ -99,10 +114,29 @@ function formatChartDate(value) {
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function debounce(fn, wait = 200) {
+  let timer = null;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), wait);
+  };
+}
+
 async function fetchJson(url) {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
+}
+
+async function fetchCached(cache, key, urlBuilder) {
+  if (cache.has(key)) return cache.get(key);
+  const request = fetchJson(urlBuilder())
+    .catch((error) => {
+      cache.delete(key);
+      throw error;
+    });
+  cache.set(key, request);
+  return request;
 }
 
 function classify(value) {
@@ -139,16 +173,21 @@ function getTrendLine(values) {
 
 function buildMonthStrip(centerMonth) {
   monthStripEl.innerHTML = '';
+  const minDate = dateEl.min || null;
+  const maxDate = dateEl.max || null;
   for (let i = -18; i <= 18; i += 1) {
     const m = addMonth(centerMonth, i);
     const { month, year } = toMonthLabel(m);
     const btn = document.createElement('button');
+    const outOfRange = (minDate && m < minDate) || (maxDate && m > maxDate);
     btn.className = `month-chip ${m === centerMonth ? 'active' : ''}`;
+    btn.disabled = outOfRange;
     btn.innerHTML = `${month}${(m.endsWith('-01') || m.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
     btn.onclick = () => {
+      if (outOfRange) return;
       lastPanelQueryKey = null;
       dateEl.value = m;
-      onDateChanged();
+      debouncedDateChanged();
     };
     monthStripEl.appendChild(btn);
   }
@@ -189,6 +228,61 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('trendText').textContent = `روند: ${(kpi.trend?.trend === 'decreasing' ? 'کاهشی' : kpi.trend?.trend === 'increasing' ? 'افزایشی' : kpi.trend?.trend === 'no trend' ? 'بدون روند' : (kpi.trend?.trend || '—'))} | میانگین: ${formatNumber(kpi.mean)} | کمینه: ${formatNumber(kpi.min)} | بیشینه: ${formatNumber(kpi.max)}`;
 }
 
+function renderPanelLoading(featureName = 'ناحیه') {
+  document.getElementById('panelTitle').textContent = `${toPersianDigits(dateEl.value.replace(/-/g, '/'))}`;
+  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
+  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
+  document.getElementById('mainMetricValue').textContent = '...';
+  document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
+  document.getElementById('trendText').textContent = 'درحال بارگذاری داده‌ها...';
+  ['tauVal', 'pVal', 'senVal', 'latestVal'].forEach((id) => {
+    document.getElementById(id).textContent = '...';
+  });
+}
+
+function setTimelineDisabled(disabled) {
+  timelineControls.forEach((el) => {
+    if (!el) return;
+    el.disabled = disabled;
+  });
+}
+
+function setNoDataMessage(show, message = 'No data for this selection') {
+  if (show) document.getElementById('trendText').textContent = message;
+}
+
+function applyDateBounds(minDate, maxDate) {
+  if (!minDate || !maxDate) {
+    dateEl.removeAttribute('min');
+    dateEl.removeAttribute('max');
+    return false;
+  }
+
+  dateEl.min = minDate;
+  dateEl.max = maxDate;
+
+  if (dateEl.value < minDate) {
+    dateEl.value = minDate;
+    return true;
+  }
+  if (dateEl.value > maxDate) {
+    dateEl.value = maxDate;
+    return true;
+  }
+  return false;
+}
+
+function getDateRangeFromTimeseries(ts) {
+  if (!ts.length) return { minDate: null, maxDate: null };
+  const months = ts
+    .map((d) => String(d.date || '').slice(0, 7))
+    .filter((d) => /^\d{4}-\d{2}$/.test(d))
+    .sort();
+
+  if (!months.length) return { minDate: null, maxDate: null };
+  return { minDate: months[0], maxDate: months[months.length - 1] };
+}
+
 function calculateTrendLine(data) {
   let sumX = 0;
   let sumY = 0;
@@ -210,8 +304,19 @@ function calculateTrendLine(data) {
 }
 
 function renderChart(ts, indexLabel) {
-  const parsedData = ts.map((d) => [d.date, Number(d.value)]);
-  const trendData = calculateTrendLine(parsedData);
+  const selectedId = String(selectedFeature?.properties?.id || 'unknown');
+  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}`;
+  let cachedDerived = derivedSeriesCache.get(derivedKey);
+  if (!cachedDerived) {
+    const parsedData = ts.map((d) => [d.date, Number(d.value)]);
+    cachedDerived = {
+      parsedData,
+      trendData: calculateTrendLine(parsedData)
+    };
+    derivedSeriesCache.set(derivedKey, cachedDerived);
+  }
+
+  const { parsedData, trendData } = cachedDerived;
   const selectedDate = toISODate(dateEl.value);
   const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
 
@@ -399,7 +504,8 @@ async function loadMap() {
 
   let data = { type: 'FeatureCollection', features: [] };
   try {
-    data = await fetchJson(`${API}/mapdata?level=${level}&index=${index}&date=${date}`);
+    const mapKey = `${level}|${index}|${date}`;
+    data = await fetchCached(mapDataCache, mapKey, () => `${API}/mapdata?level=${level}&index=${index}&date=${date}`);
   } catch (_) {}
 
   if (reqId !== mapRequestSeq) return;
@@ -434,6 +540,9 @@ async function onRegionClick(feature) {
     const levelName = levelEl.value;
     const featureName = feature?.properties?.name || 'ناحیه';
     setPanelOpen(true);
+    renderPanelLoading(featureName);
+    setTimelineDisabled(false);
+    setNoDataMessage(false);
 
     const queryKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
     if (lastPanelQueryKey === queryKey && panelEl.classList.contains('open')) return;
@@ -442,13 +551,42 @@ async function onRegionClick(feature) {
     const reqId = ++panelRequestSeq;
     let kpi = { error: 'No series found' }; let ts = [];
     try {
+      const seriesKey = `${regionId}|${levelName}|${indexName}`;
+      const kpiKey = `${seriesKey}|${dateEl.value}`;
       [kpi, ts] = await Promise.all([
-        fetchJson(`${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`),
-        fetchJson(`${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
+        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`),
+        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`)
       ]);
     } catch (_) {}
 
     if (reqId !== panelRequestSeq) return;
+
+    const normalizedSeries = normalizeTimeseries(ts);
+    const { minDate, maxDate } = getDateRangeFromTimeseries(normalizedSeries);
+
+    if (!normalizedSeries.length) {
+      setTimelineDisabled(true);
+      setNoDataMessage(true, 'No data for this selection');
+      renderKPI({
+        latest: NaN,
+        min: NaN,
+        max: NaN,
+        mean: NaN,
+        severity: 'N/A',
+        trend: { tau: NaN, p_value: '-', sen_slope: NaN, trend: '—' }
+      }, featureName, indexName);
+      renderChart([], indexName);
+      return;
+    }
+
+    setTimelineDisabled(false);
+    const dateAdjusted = applyDateBounds(minDate, maxDate);
+    buildMonthStrip(dateEl.value);
+    if (dateAdjusted) {
+      lastPanelQueryKey = null;
+      await onDateChanged();
+      return;
+    }
 
     const val = Number(feature?.properties?.value);
     const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
@@ -463,7 +601,7 @@ async function onRegionClick(feature) {
       };
 
     renderKPI(safeKpi, featureName, indexName);
-    renderChart(normalizeTimeseries(ts), indexName);
+    renderChart(normalizedSeries, indexName);
   } catch (err) {
     console.error('onRegionClick error:', err);
     setPanelOpen(true);
@@ -484,30 +622,72 @@ async function onDateChanged() {
   }
 }
 
-function setupEvents() {
-  document.getElementById('reloadTop').addEventListener('click', () => { lastPanelQueryKey = null; onDateChanged(); });
-  indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
-  levelEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
-  dateEl.addEventListener('change', () => { lastPanelQueryKey = null; onDateChanged(); });
+const debouncedDateChanged = debounce(() => {
+  if (mapUpdateDebounce) {
+    clearTimeout(mapUpdateDebounce);
+  }
+  mapUpdateDebounce = setTimeout(() => {
+    onDateChanged();
+  }, 120);
+}, 120);
 
-  document.getElementById('prevMonth').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
-  document.getElementById('nextMonth').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+function setupEvents() {
+  document.getElementById('reloadTop').addEventListener('click', () => {
+    lastPanelQueryKey = null;
+    mapDataCache.clear();
+    panelKpiCache.clear();
+    timeseriesCache.clear();
+    derivedSeriesCache.clear();
+    onDateChanged();
+  });
+  indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
+  levelEl.addEventListener('change', () => {
+    lastPanelQueryKey = null;
+    dateEl.removeAttribute('min');
+    dateEl.removeAttribute('max');
+    setTimelineDisabled(false);
+    onDateChanged();
+  });
+  dateEl.addEventListener('change', () => { lastPanelQueryKey = null; debouncedDateChanged(); });
+
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    if (dateEl.min && dateEl.value <= dateEl.min) return;
+    lastPanelQueryKey = null;
+    dateEl.value = addMonth(dateEl.value, -1);
+    debouncedDateChanged();
+  });
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    if (dateEl.max && dateEl.value >= dateEl.max) return;
+    lastPanelQueryKey = null;
+    dateEl.value = addMonth(dateEl.value, 1);
+    debouncedDateChanged();
+  });
   document.getElementById('toStart').addEventListener('click', () => {
     if (!currentRangeStart) return;
     lastPanelQueryKey = null;
     dateEl.value = currentRangeStart;
-    onDateChanged();
+    debouncedDateChanged();
   });
   document.getElementById('toEnd').addEventListener('click', () => {
     if (!currentRangeEnd) return;
     lastPanelQueryKey = null;
     dateEl.value = currentRangeEnd;
-    onDateChanged();
+    debouncedDateChanged();
   });
 
   // Fix timeline arrow behavior: shift date and refresh (not just scroll)
-  document.getElementById('stripPrev').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, -1); onDateChanged(); });
-  document.getElementById('stripNext').addEventListener('click', () => { lastPanelQueryKey = null; dateEl.value = addMonth(dateEl.value, 1); onDateChanged(); });
+  document.getElementById('stripPrev').addEventListener('click', () => {
+    if (dateEl.min && dateEl.value <= dateEl.min) return;
+    lastPanelQueryKey = null;
+    dateEl.value = addMonth(dateEl.value, -1);
+    debouncedDateChanged();
+  });
+  document.getElementById('stripNext').addEventListener('click', () => {
+    if (dateEl.max && dateEl.value >= dateEl.max) return;
+    lastPanelQueryKey = null;
+    dateEl.value = addMonth(dateEl.value, 1);
+    debouncedDateChanged();
+  });
 
   closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
 
