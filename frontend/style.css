@@ -28,6 +28,8 @@ body { margin: 0; background: var(--bg); color: var(--text); overflow: hidden; }
 .map-legend .short { font-weight:700; width:24px; display:inline-block; }
 .map-legend.compact .label { display: none; }
 .map-legend.compact h6 { display: none; }
+.leaflet-bottom.leaflet-right .map-legend { margin-bottom: 52px; }
+
 
 .bottom-timeline { position: absolute; bottom: 12px; right: 50%; transform: translateX(50%); z-index: 700; border-radius: 12px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18); min-width: min(1550px, calc(100vw - 24px)); }
 .timeline-date { width: 165px; }

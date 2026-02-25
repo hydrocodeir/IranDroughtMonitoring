@@ -36,10 +36,29 @@ const severityLong = {
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
 
+function toPersianDigits(value) {
+  return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
+}
+
 function formatNumber(value, digits = 4) {
   const num = Number(value);
-  if (!Number.isFinite(num)) return '-';
-  return num.toFixed(digits);
+  if (!Number.isFinite(num)) return '—';
+  const formatted = Math.abs(num).toFixed(digits).replace('.', '٫');
+  return toPersianDigits(num < 0 ? `${formatted}−` : formatted);
+}
+
+function formatPValue(value) {
+  const raw = String(value ?? '').trim();
+  const num = Number(raw);
+  if (Number.isFinite(num)) return formatNumber(num, 4);
+
+  const match = raw.match(/^([<>]=?)\s*(-?\d*\.?\d+)$/);
+  if (match) {
+    const [, sign, numberPart] = match;
+    return `${sign}${formatNumber(Number(numberPart), 4)}`;
+  }
+
+  return toPersianDigits((raw || '—').replace('.', '٫'));
 }
 
 function addMonth(yyyymm, delta) {
@@ -163,7 +182,7 @@ function renderKPI(kpi, featureName, indexLabel) {
   applySeverityStyle(sev);
 
   document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
-  document.getElementById('pVal').textContent = (kpi.trend?.p_value ?? '-').toString();
+  document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
   document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
   document.getElementById('latestVal').textContent = formatNumber(kpi.latest);
   document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${formatNumber(kpi.mean)} | Min: ${formatNumber(kpi.min)} | Max: ${formatNumber(kpi.max)}`;
@@ -225,7 +244,7 @@ function renderChart(ts, indexLabel) {
       axisPointer: { type: 'cross' },
       formatter: (params) => {
         const entries = Array.isArray(params) ? params : [params];
-        const axisValue = entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '';
+        const axisValue = toPersianDigits((entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '').replace(/-/g, '/'));
         const rows = entries.map((item) => {
           const value = Array.isArray(item.value) ? item.value[1] : item.value;
           return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
@@ -249,7 +268,7 @@ function renderChart(ts, indexLabel) {
       type: 'time',
       boundaryGap: false,
       axisLabel: {
-        formatter: '{yyyy}-{MM}',
+        formatter: (value) => toPersianDigits(String(value).slice(0, 7).replace(/-/g, '/')),
         rotate: 45,
         color: '#6b7280'
       },
@@ -261,7 +280,10 @@ function renderChart(ts, indexLabel) {
       min: -3,
       max: 2,
       interval: 1,
-      axisLabel: { color: '#6b7280' },
+      axisLabel: {
+        color: '#6b7280',
+        formatter: (value) => toPersianDigits(String(value).replace('-', '−').replace('.', '٫'))
+      },
       splitLine: {
         show: true,
         lineStyle: { color: '#e5e7eb' }
