@@ -36,6 +36,12 @@ const severityLong = {
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
 
+function formatNumber(value, digits = 4) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '-';
+  return num.toFixed(digits);
+}
+
 function addMonth(yyyymm, delta) {
   const [y, m] = yyyymm.split('-').map(Number);
   const dt = new Date(y, m - 1 + delta, 1);
@@ -144,6 +150,7 @@ function applySeverityStyle(sev) {
   valueBoxEl.classList.add(`sev-${key}`);
   const c = severityColor(sev);
   valueBoxEl.style.borderColor = c;
+  valueBoxEl.style.setProperty('--severity-color', c);
 }
 
 function renderKPI(kpi, featureName, indexLabel) {
@@ -151,15 +158,15 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('panelTitle').textContent = `Drought - ${dateEl.value}`;
   document.getElementById('panelSubtitle').textContent = `Selected Region: ${featureName}`;
   document.getElementById('mainMetricLabel').textContent = `${indexLabel.toUpperCase()} Value`;
-  document.getElementById('mainMetricValue').textContent = Number(kpi.latest ?? 0).toFixed(2);
+  document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
   applySeverityStyle(sev);
 
-  document.getElementById('tauVal').textContent = Number(kpi.trend?.tau ?? 0).toFixed(3);
+  document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
   document.getElementById('pVal').textContent = (kpi.trend?.p_value ?? '-').toString();
-  document.getElementById('senVal').textContent = Number(kpi.trend?.sen_slope ?? 0).toFixed(4);
-  document.getElementById('latestVal').textContent = Number(kpi.latest ?? 0).toFixed(2);
-  document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
+  document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
+  document.getElementById('latestVal').textContent = formatNumber(kpi.latest);
+  document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${formatNumber(kpi.mean)} | Min: ${formatNumber(kpi.min)} | Max: ${formatNumber(kpi.max)}`;
 }
 
 function calculateTrendLine(data) {
@@ -215,7 +222,16 @@ function renderChart(ts, indexLabel) {
     },
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'cross' }
+      axisPointer: { type: 'cross' },
+      formatter: (params) => {
+        const entries = Array.isArray(params) ? params : [params];
+        const axisValue = entries[0]?.axisValueLabel || entries[0]?.value?.[0] || '';
+        const rows = entries.map((item) => {
+          const value = Array.isArray(item.value) ? item.value[1] : item.value;
+          return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
+        });
+        return [axisValue, ...rows].join('<br/>');
+      }
     },
     legend: {
       top: 4,
@@ -362,7 +378,7 @@ async function loadMap() {
   geoLayer = L.geoJSON(data, {
     style: f => ({ color: '#334155', weight: 1, fillOpacity: 0.78, fillColor: severityColor(f.properties.severity) }),
     onEachFeature: (feature, layer) => {
-      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>${index.toUpperCase()}: ${Number(feature.properties.value).toFixed(2)}<br>${feature.properties.severity}</div>`);
+      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>${index.toUpperCase()}: ${formatNumber(feature.properties.value)}<br>${feature.properties.severity}</div>`);
       layer.on('click', () => onRegionClick(feature));
     }
   }).addTo(map);
