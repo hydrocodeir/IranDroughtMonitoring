@@ -162,196 +162,153 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('trendText').textContent = `Trend: ${kpi.trend?.trend || '-'} | Mean: ${Number(kpi.mean ?? 0).toFixed(2)} | Min: ${Number(kpi.min ?? 0).toFixed(2)} | Max: ${Number(kpi.max ?? 0).toFixed(2)}`;
 }
 
-function droughtUpperBound(value) {
-  if (value >= -0.5) return 0.0;
-  if (value >= -0.8) return -0.5;
-  if (value >= -1.3) return -0.8;
-  if (value >= -1.6) return -1.3;
-  if (value >= -2.0) return -1.6;
-  return -2.0;
-}
+function calculateTrendLine(data) {
+  let sumX = 0;
+  let sumY = 0;
+  let sumXY = 0;
+  let sumXX = 0;
+  const n = data.length;
+  if (n < 2) return [...data];
 
-function thresholdSeverityByBound(bound) {
-  if (bound >= 0) return 'Normal/Wet';
-  if (bound >= -0.5) return 'D0';
-  if (bound >= -0.8) return 'D1';
-  if (bound >= -1.3) return 'D2';
-  if (bound >= -1.6) return 'D3';
-  return 'D4';
-}
-
-function droughtFillColorByBound(bound) {
-  const sev = thresholdSeverityByBound(bound);
-  const base = severityColor(sev);
-  const rgb = base.startsWith('#') ? base : '#60a5fa';
-  const hex = rgb.replace('#', '');
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, 0.40)`;
-}
-
-function drawThresholdGuides(chartRef) {
-  const y = chartRef.scales.y;
-  const { ctx, chartArea } = chartRef;
-  if (!y || !chartArea) return;
-  [0, -0.5, -0.8, -1.3, -1.6, -2.0].forEach(v => {
-    const py = y.getPixelForValue(v);
-    ctx.save();
-    ctx.strokeStyle = 'rgba(107,114,128,.55)';
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(chartArea.left, py);
-    ctx.lineTo(chartArea.right, py);
-    ctx.stroke();
-    ctx.restore();
-  });
-}
-
-function drawAreaBetweenSeriesAndThreshold(chartRef, values) {
-  const y = chartRef.scales.y;
-  const meta = chartRef.getDatasetMeta(0);
-  const { ctx } = chartRef;
-  if (!y || !meta?.data?.length || values.length < 2) return;
-
-  // Fill ONLY between line and its local threshold bound (piecewise), not full row bands.
-  for (let i = 1; i < meta.data.length; i += 1) {
-    const p0 = meta.data[i - 1];
-    const p1 = meta.data[i];
-    const v0 = Number(values[i - 1]);
-    const v1 = Number(values[i]);
-    if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
-
-    const steps = 10;
-    for (let j = 0; j < steps; j += 1) {
-      const t0 = j / steps;
-      const t1 = (j + 1) / steps;
-      const x0 = p0.x + (p1.x - p0.x) * t0;
-      const x1 = p0.x + (p1.x - p0.x) * t1;
-      const vSeg0 = v0 + (v1 - v0) * t0;
-      const vSeg1 = v0 + (v1 - v0) * t1;
-      const bound0 = droughtUpperBound(vSeg0);
-      const bound1 = droughtUpperBound(vSeg1);
-      const boundMid = droughtUpperBound((vSeg0 + vSeg1) / 2);
-
-      const yLine0 = y.getPixelForValue(vSeg0);
-      const yLine1 = y.getPixelForValue(vSeg1);
-      const yBound0 = y.getPixelForValue(bound0);
-      const yBound1 = y.getPixelForValue(bound1);
-
-      ctx.save();
-      ctx.fillStyle = droughtFillColorByBound(boundMid);
-      ctx.beginPath();
-      ctx.moveTo(x0, yLine0);
-      ctx.lineTo(x1, yLine1);
-      ctx.lineTo(x1, yBound1);
-      ctx.lineTo(x0, yBound0);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
-    }
+  for (let i = 0; i < n; i += 1) {
+    sumX += i;
+    sumY += data[i][1];
+    sumXY += i * data[i][1];
+    sumXX += i * i;
   }
-}
 
-function drawThresholdLabels(chartRef) {
-  const y = chartRef.scales.y;
-  const { ctx, chartArea } = chartRef;
-  if (!y || !chartArea) return;
-
-  const labels = [
-    { text: 'N0', val: 0 },
-    { text: 'D0', val: -0.5 },
-    { text: 'D1', val: -0.8 },
-    { text: 'D2', val: -1.3 },
-    { text: 'D3', val: -1.6 },
-    { text: 'D4', val: -2.0 },
-  ];
-
-  ctx.save();
-  ctx.fillStyle = '#374151';
-  ctx.font = '12px Vazirmatn, sans-serif';
-  ctx.textBaseline = 'middle';
-  labels.forEach(l => {
-    const yy = y.getPixelForValue(l.val);
-    ctx.fillText(l.text, chartArea.right + 8, yy);
-  });
-  ctx.restore();
+  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+  const intercept = (sumY - slope * sumX) / n;
+  return data.map((point, i) => [point[0], slope * i + intercept]);
 }
 
 function renderChart(ts, indexLabel) {
-  const labels = ts.map(d => d.date);
-  const values = ts.map(d => d.value);
-  const trendData = getTrendLine(values);
+  const parsedData = ts.map((d) => [d.date, Number(d.value)]);
+  const trendData = calculateTrendLine(parsedData);
   const selectedDate = toISODate(dateEl.value);
-  const selectedIdx = labels.indexOf(selectedDate);
-  const lastIdx = labels.length - 1;
+  const lastDate = parsedData.length ? parsedData[parsedData.length - 1][0] : selectedDate;
 
-  const customPlugin = {
-    id: 'bandsAndVLines',
-    beforeDatasetsDraw(chartRef) {
-      drawAreaBetweenSeriesAndThreshold(chartRef, values);
-      drawThresholdGuides(chartRef);
-    },
-    afterDatasetsDraw(chartRef) {
-      const { ctx, chartArea, scales: { x } } = chartRef;
-      if (!x || !chartArea) return;
-      const drawV = (idx, color, dash = [5, 4]) => {
-        if (idx < 0 || idx >= labels.length) return;
-        const xPos = x.getPixelForValue(idx);
-        ctx.save();
-        ctx.setLineDash(dash);
-        ctx.strokeStyle = color;
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.moveTo(xPos, chartArea.top);
-        ctx.lineTo(xPos, chartArea.bottom);
-        ctx.stroke();
-        ctx.restore();
-      };
-      drawV(lastIdx, '#2563eb', [3, 3]);
-      if (selectedIdx !== -1 && selectedIdx !== lastIdx) drawV(selectedIdx, '#ef4444', [6, 4]);
-      drawThresholdLabels(chartRef);
-    }
-  };
+  const chartDom = document.getElementById('tsChart');
+  if (!chart) {
+    chart = echarts.init(chartDom);
+    window.addEventListener('resize', () => chart && chart.resize());
+  }
 
-  if (chart) chart.destroy();
-  chart = new Chart(document.getElementById('tsChart'), {
-    type: 'line',
-    data: {
-      labels,
-      datasets: [
-        {
-          label: indexLabel.toUpperCase(),
-          data: values,
-          borderWidth: 2,
-          pointRadius: 0,
-          tension: .2,
-          segment: {
-            borderColor: ctx => severityColor(classify(ctx.p1.parsed.y))
-          }
-        },
-        {
-          label: 'Trend',
-          data: trendData,
-          borderColor: '#ef4444',
-          borderWidth: 1.4,
-          pointRadius: 0,
-          tension: 0,
-          fill: false
-        }
-      ]
+  const markLineData = [
+    { yAxis: -0.5, name: 'D0' },
+    { yAxis: -0.8, name: 'D1' },
+    { yAxis: -1.3, name: 'D2' },
+    { yAxis: -1.6, name: 'D3' },
+    { yAxis: -2.0, name: 'D4' },
+    { xAxis: lastDate, lineStyle: { color: '#3498db', type: 'dashed', width: 2 }, label: { show: false } }
+  ];
+
+  if (selectedDate !== lastDate) {
+    markLineData.push({ xAxis: selectedDate, lineStyle: { color: '#ef4444', type: 'dashed', width: 1.8 }, label: { show: false } });
+  }
+
+  const option = {
+    title: {
+      text: 'Time Series',
+      left: 'left',
+      textStyle: { fontWeight: 'bold', fontSize: 20, color: '#1f2937' }
     },
-    options: {
-      maintainAspectRatio: false,
-      layout: { padding: { right: 32 } },
-      plugins: { legend: { display: true } },
-      scales: {
-        x: { ticks: { maxTicksLimit: 6 } },
-        y: { min: -3, max: 2.5, grid: { color: '#e2e8f0' } }
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'cross' }
+    },
+    legend: {
+      top: 4,
+      right: 8,
+      textStyle: { color: '#4b5563' }
+    },
+    grid: {
+      left: '7%',
+      right: '10%',
+      bottom: '20%',
+      top: 50,
+      containLabel: true
+    },
+    xAxis: {
+      type: 'time',
+      boundaryGap: false,
+      axisLabel: {
+        formatter: '{yyyy}-{MM}',
+        rotate: 45,
+        color: '#6b7280'
+      },
+      axisLine: { lineStyle: { color: '#d1d5db' } },
+      splitLine: { show: false }
+    },
+    yAxis: {
+      type: 'value',
+      min: -3,
+      max: 2,
+      interval: 1,
+      axisLabel: { color: '#6b7280' },
+      splitLine: {
+        show: true,
+        lineStyle: { color: '#e5e7eb' }
       }
     },
-    plugins: [customPlugin]
-  });
+    visualMap: {
+      type: 'piecewise',
+      show: false,
+      dimension: 1,
+      seriesIndex: 0,
+      pieces: [
+        { min: 0, color: '#a2e8c6' },
+        { min: -0.5, max: 0, color: '#c7eed8' },
+        { min: -0.8, max: -0.5, color: '#ffea75' },
+        { min: -1.3, max: -0.8, color: '#ffc859' },
+        { min: -1.6, max: -1.3, color: '#ff9843' },
+        { min: -2.0, max: -1.6, color: '#e73838' },
+        { max: -2.0, color: '#8b0000' }
+      ]
+    },
+    dataZoom: [
+      {
+        type: 'slider',
+        show: true,
+        start: 0,
+        end: 100,
+        bottom: 10,
+        height: 25,
+        borderColor: '#d1d5db',
+        fillerColor: 'rgba(167, 183, 204, 0.4)',
+        handleStyle: { color: '#a7b7cc' }
+      }
+    ],
+    series: [
+      {
+        name: indexLabel.toUpperCase(),
+        type: 'line',
+        data: parsedData,
+        symbol: 'none',
+        lineStyle: { width: 2 },
+        areaStyle: {
+          origin: 0,
+          opacity: 0.7
+        },
+        markLine: {
+          symbol: ['none', 'none'],
+          label: { position: 'end', formatter: '{b}', color: '#374151', fontSize: 12 },
+          lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
+          data: markLineData
+        }
+      },
+      {
+        name: 'Trend',
+        type: 'line',
+        data: trendData,
+        symbol: 'none',
+        lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
+        itemStyle: { color: '#ef4444' }
+      }
+    ]
+  };
+
+  chart.setOption(option, true);
 }
 
 function addMapLegend() {
