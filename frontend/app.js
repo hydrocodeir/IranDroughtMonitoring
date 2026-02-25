@@ -125,10 +125,16 @@ function toMonthLabel(yyyymm) {
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
+function toUTCMonthStart(yyyymm) { return `${yyyymm}-01T00:00:00Z`; }
+
 function formatChartDate(value) {
+  const raw = String(value || '');
+  const directMonth = raw.match(/^(\d{4}-\d{2})/);
+  if (directMonth) return directMonth[1];
+
   const dt = new Date(value);
-  if (Number.isNaN(dt.getTime())) return String(value || '');
-  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+  if (Number.isNaN(dt.getTime())) return raw;
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
 function debounce(fn, wait = 200) {
@@ -357,7 +363,7 @@ function renderChart(ts, indexLabel) {
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
-    const parsedData = ts.map((d) => [d.date, Number(d.value)]);
+    const parsedData = ts.map((d) => [String(d.date).includes('T') ? d.date : `${d.date}T00:00:00Z`, Number(d.value)]);
     cachedDerived = {
       parsedData,
       trendData: calculateTrendLine(parsedData)
@@ -366,7 +372,7 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toISODate(dateEl.value);
+  const selectedDate = toUTCMonthStart(dateEl.value);
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -515,8 +521,8 @@ function renderChart(ts, indexLabel) {
     ]
   };
 
-  currentRangeStart = parsedData.length ? parsedData[0][0].slice(0, 7) : null;
-  currentRangeEnd = parsedData.length ? parsedData[parsedData.length - 1][0].slice(0, 7) : null;
+  currentRangeStart = parsedData.length ? formatChartDate(parsedData[0][0]) : null;
+  currentRangeEnd = parsedData.length ? formatChartDate(parsedData[parsedData.length - 1][0]) : null;
   chart.setOption(option, true);
   lastChartRenderKey = derivedKey;
 }
