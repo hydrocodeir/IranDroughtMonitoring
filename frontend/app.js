@@ -1,4 +1,4 @@
-const API = "http://localhost:8000";
+const API_BASE = window.API_BASE_URL || "http://localhost:8000";
 const map = L.map('map', { zoomControl: false }).setView([32.5, 53.6], 5);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
@@ -294,7 +294,7 @@ function preloadLikelyMapRequests(level, index, baseMonth) {
   [-1, 1].forEach((offset) => {
     const nextMonth = addMonth(baseMonth, offset);
     const mapKey = `${level}|${index}|${nextMonth}`;
-    fetchCached(mapDataCache, mapKey, () => `${API}/mapdata?level=${level}&index=${index}&date=${nextMonth}`)
+    fetchCached(mapDataCache, mapKey, () => `${API_BASE}/mapdata?level=${level}&index=${index}&date=${nextMonth}`)
       .catch(() => {});
   });
 }
@@ -589,7 +589,7 @@ async function loadMap() {
     data = await fetchCached(
       mapDataCache,
       mapKey,
-      () => `${API}/mapdata?level=${level}&index=${index}&date=${date}`,
+      () => `${API_BASE}/mapdata?level=${level}&index=${index}&date=${date}`,
       { signal: mapAbortController.signal }
     );
     preloadLikelyMapRequests(level, index, date);
@@ -646,12 +646,12 @@ async function onRegionClick(feature) {
       const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
       const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
       [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesAllKey, () => `${API}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
+        fetchCached(panelKpiCache, kpiKey, () => `${API_BASE}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(timeseriesCache, seriesKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
+        fetchCached(timeseriesCache, seriesAllKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
       if (window.htmx && kpiGridEl) {
-        htmx.ajax('GET', `${API}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}`, {
+        htmx.ajax('GET', `${API_BASE}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}`, {
           target: '#kpiGrid',
           swap: 'innerHTML'
         });
