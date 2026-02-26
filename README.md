@@ -26,9 +26,19 @@ No synthetic/fallback data is generated.
 - `GET /kpi?region_id=...&level=...&index=spi3`
 
 ## Run
+### Development mode (hot reload for backend, celery, and frontend)
 ```bash
-docker-compose up --build
+make dev
+# or: docker compose -f docker-compose.dev.yml up --build
+```
+
+### Production mode (current nginx + non-reload backend setup)
+```bash
+make prod
+# or: docker compose -f docker-compose.yml up --build
 ```
 
 - Frontend: `http://localhost:8080`
 - Backend docs: `http://localhost:8000/docs`
+
+In development mode, backend and frontend source folders are bind-mounted, so code changes apply immediately without rebuilding images.
