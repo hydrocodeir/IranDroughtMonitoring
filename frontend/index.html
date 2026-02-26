@@ -4,99 +4,278 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>سامانه پایش خشکسالی ایران</title>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet">
+
+  <!-- Bootstrap (LTR + optional RTL). RTL is kept available for compatibility. -->
+  <link id="bootstrapCss" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link id="bootstrapRtlCss" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.rtl.min.css" rel="stylesheet" disabled>
+
+  <!-- Leaflet map -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <!-- App styles -->
   <link rel="stylesheet" href="style.css" />
+
+  <!-- Optional: server-side fragments (kept for compatibility) -->
   <script src="https://unpkg.com/htmx.org@1.9.12"></script>
 </head>
+
 <body>
-  <header class="topbar px-3 px-lg-4 py-2 d-flex justify-content-between align-items-center">
-    <div>
-      <h1 class="mb-0">داشبورد پایش خشکسالی ایران</h1>
-      <small class="text-muted">نمایش شاخص‌های SPI/SPEI، دما و بارش در سطوح مدیریتی ایران | تولیدکننده: HydroCode@2026</small>
-    </div>
-    <div class="d-none d-md-flex align-items-center gap-2">
-      <button id="reloadTop" class="btn btn-sm btn-primary">به‌روزرسانی نقشه</button>
-    </div>
-  </header>
-
-  <main class="map-shell">
-    <div id="map"></div>
-
-    <div class="floating-controls card border-0">
-      <div class="card-body p-2 d-flex align-items-center gap-2 flex-wrap">
-        <input id="search" placeholder="جستجوی ناحیه..." class="form-control form-control-sm search-input" />
-        <select id="index" class="form-select form-select-sm control-field"></select>
+  <div class="app-shell" id="appShell">
+    <header class="app-header" role="banner">
+      <div class="brand">
+        <div class="brand__title">داشبورد پایش خشکسالی ایران</div>
+        <div class="brand__subtitle">نمایش شاخص‌های SPI/SPEI در سطوح مدیریتی ایران • HydroCode@2026</div>
       </div>
+
+      <div class="header-actions">
+        <button id="toggleSidebar" class="btn btn-sm btn-outline-secondary d-lg-none" type="button" title="نمایش فیلترها">
+          فیلترها
+        </button>
+        <button id="togglePanel" class="btn btn-sm btn-outline-secondary d-lg-none" type="button" title="نمایش پنل تحلیل">
+          تحلیل
+        </button>
+        <button id="openAbout" class="btn btn-sm btn-outline-secondary" type="button" title="درباره سامانه">
+          درباره
+        </button>
+        <button id="reloadTop" class="btn btn-sm btn-primary" type="button" title="به‌روزرسانی داده‌ها و نقشه">
+          به‌روزرسانی
+        </button>
+      </div>
+    </header>
+
+    <div class="app-body" role="main">
+      <!-- Sidebar (Filters) -->
+      <aside id="sidebar" class="sidebar" aria-label="فیلترها">
+        <div class="stack">
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div class="ui-card__title">فیلترها</div>
+            </div>
+            <div class="ui-card__body">
+              <label class="form-label" for="search">جستجوی ناحیه</label>
+              <input id="search" placeholder="مثلاً: تهران" class="form-control form-control-sm" />
+              <div class="form-hint">در نتایج نقشه، نواحی نامرتبط کم‌رنگ می‌شوند.</div>
+            </div>
+          </section>
+
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div class="ui-card__title">شاخص</div>
+            </div>
+            <div class="ui-card__body">
+              <label class="form-label" for="index">انتخاب شاخص</label>
+              <select id="index" class="form-select form-select-sm"></select>
+              <div class="form-hint">پنجره‌های زمانی ۱ تا ۲۴ ماهه در دسترس هستند.</div>
+            </div>
+          </section>
+
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div class="ui-card__title">سطح جغرافیایی</div>
+            </div>
+            <div class="ui-card__body">
+              <label class="form-label" for="level">انتخاب سطح</label>
+                <select id="level" class="form-select form-select-sm">
+                  <option value="station">ایستگاهی</option>
+                  <option value="province" disabled>استانی (بزودی)</option>
+                  <option value="county" disabled>شهرستانی (بزودی)</option>
+                  <option value="level1" disabled>حوزه درجه یک (بزودی)</option>
+                  <option value="level2" disabled>حوزه درجه دو (بزودی)</option>
+                  <option value="level3" disabled>حوزه درجه سه (بزودی)</option>
+                </select>
+              <div class="form-hint">برای هر سطح، داده و مرزبندی مستقل نمایش داده می‌شود.</div>
+            </div>
+          </section>
+
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div class="ui-card__title">راهنما</div>
+            </div>
+            <div class="ui-card__body">
+              <ul class="clean-list">
+                <li>روی ناحیه کلیک کنید تا تحلیل و سری زمانی نمایش داده شود.</li>
+                <li>با حرکت موس روی نقشه، اطلاعات سریع (Tooltip) دیده می‌شود.</li>
+                <li>در موبایل از دکمه‌های «فیلترها» و «تحلیل» در هدر استفاده کنید.</li>
+              </ul>
+            </div>
+          </section>
+        </div>
+      </aside>
+
+      <!-- Map Column -->
+      <main class="map-col" aria-label="نقشه و زمان">
+        <div class="map-col__stack">
+          <section class="ui-card map-card">
+            <div class="ui-card__header map-card__header">
+              <div>
+                <div class="ui-card__title">نقشه تعاملی</div>
+                <div id="mapSubtitle" class="ui-card__hint">—</div>
+              </div>
+              <div class="map-toolbar">
+                <div class="toolbar-group">
+                  <label class="form-label small mb-1" for="basemap">نقشه پایه</label>
+                  <select id="basemap" class="form-select form-select-sm">
+                    <option value="carto" selected>خنثی (Carto Light)</option>
+                    <option value="osm">OSM</option>
+                    <option value="dark">تیره (Carto Dark)</option>
+                  </select>
+                </div>
+                <button id="resetView" class="btn btn-sm btn-light" type="button" title="بازگشت به نمای ایران">
+                  بازنشانی
+                </button>
+              </div>
+            </div>
+
+            <div class="ui-card__body map-card__body">
+              <div id="map" aria-label="نقشه"></div>
+
+              <div id="mapLoading" class="map-loading" aria-live="polite">
+                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                <span>در حال بارگذاری نقشه...</span>
+              </div>
+
+              <div id="mapHover" class="map-hover is-hidden" aria-hidden="true">
+                <div class="map-hover__title" id="hoverName">—</div>
+                <div class="map-hover__meta" dir="ltr" id="hoverMeta">—</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="ui-card timeline-card" aria-label="کنترل زمان">
+            <div class="ui-card__body">
+              <div class="timeline-row">
+                <div class="timeline-left">
+                  <button id="toStart" class="btn btn-sm btn-light" type="button" title="ابتدای بازه">‹‹</button>
+                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="ماه قبل">‹</button>
+                  <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
+                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="ماه بعد">›</button>
+                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="انتهای بازه">››</button>
+                </div>
+                <div class="timeline-right">
+                  <span class="small text-muted">انتخاب سریع</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="month-strip-shell">
+              <button id="stripPrev" class="strip-nav" type="button" title="ماه قبل">‹‹</button>
+              <div id="monthStrip" class="month-strip" aria-label="نوار ماه‌ها"></div>
+              <button id="stripNext" class="strip-nav" type="button" title="ماه بعد">››</button>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <!-- Chart / Insight Panel -->
+      <aside id="insightPanel" class="insight" aria-hidden="false" aria-label="پنل تحلیل">
+        <div class="stack">
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div>
+                <div class="ui-card__title" id="panelTitle">جزئیات ناحیه</div>
+                <div class="ui-card__hint" id="panelSubtitle">برای مشاهده جزئیات روی یک ناحیه کلیک کنید.</div>
+              </div>
+              <button id="closePanel" class="icon-btn d-lg-none" type="button" title="بستن پنل">✕</button>
+            </div>
+
+            <div class="ui-card__body">
+              <section id="valueBox" class="value-box">
+                <div class="value-box__row">
+                  <span id="mainMetricLabel"></span>
+                  <span id="severityBadge" class="severity-badge">—</span>
+                </div>
+                <div class="main-value" id="mainMetricValue">—</div>
+              </section>
+
+              <div class="chart-section" aria-label="Time Series">
+                <div class="chart-section__head">
+                  <div class="chart-section__title">سری زمانی</div>
+                </div>
+                <div class="chart-wrap" aria-label="سری زمانی"><div id="tsChart"></div></div>
+              </div>
+
+              <section class="trend-section" aria-label="Trend Analysis">
+                <div class="trend-head">
+                  <div class="trend-head__left">
+                    <div class="trend-head__title">تحلیل روند</div>
+                  </div>
+                  <div class="trend-head__right">
+                    <span id="trendStatus">—</span>
+                  </div>
+                </div>
+
+                <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری...</span></div>
+
+                <div id="kpiGrid" class="kpi-grid kpi-grid--trend" hx-swap="innerHTML">
+                  <div class="kpi-card"><small>Kendall's τ</small><strong id="tauVal">—</strong></div>
+                  <div class="kpi-card"><small>P-value</small><strong id="pVal">—</strong></div>
+                  <div class="kpi-card"><small>Sen's Slope</small><strong id="senVal">—</strong></div>
+                </div>
+                <div id="trendNote" class="trend-note">—</div>
+              </section>
+            </div>
+          </section>
+
+          <section class="ui-card">
+            <div class="ui-card__header">
+              <div>
+                <div class="ui-card__title">نمای کلی</div>
+                <div id="overviewSubtitle" class="ui-card__hint">—</div>
+              </div>
+            </div>
+            <div class="ui-card__body">
+              <div id="overviewChart" class="chart-sm" aria-label="نمودار نمای کلی"></div>
+              <div id="overviewStats" class="overview-stats" aria-label="آمار نمای کلی"></div>
+            </div>
+          </section>
+        </div>
+      </aside>
     </div>
 
-    <div id="modalBackdrop" class="modal-backdrop-custom" aria-hidden="true"></div>
-    <div id="mapLoading" class="map-loading"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری نقشه...</span></div>
+    <!-- Shared Backdrop (drawers + modal) -->
+    <div id="modalBackdrop" class="overlay-backdrop" aria-hidden="true"></div>
 
-    <aside id="insightPanel" class="insight-panel" aria-hidden="true">
-      <div class="insight-header d-flex justify-content-between align-items-start">
-        <button id="closePanel" class="btn btn-light shadow-sm close-panel-btn">✕</button>
-        <div class="flex-grow-1 ps-2">
-          <h5 class="mb-1" id="panelTitle">نمای خشکسالی</h5>
-          <div class="text-secondary small" id="panelSubtitle">برای مشاهده جزئیات روی یک ناحیه کلیک کنید.</div>
+    <!-- Professional Modal -->
+    <div id="aboutModal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="aboutTitle" aria-hidden="true">
+      <div class="app-modal__dialog" role="document">
+        <div class="app-modal__header">
+          <div>
+            <div id="aboutTitle" class="app-modal__title">درباره سامانه</div>
+            <div class="app-modal__subtitle">Iran Drought Monitoring • Enterprise GIS UI</div>
+          </div>
+          <button id="aboutClose" class="icon-btn" type="button" aria-label="بستن">✕</button>
+        </div>
+        <div class="app-modal__body">
+          <p class="mb-2">
+            این داشبورد برای نمایش و تحلیل شاخص‌های خشکسالی (SPI/SPEI) در سطوح مدیریتی ایران طراحی شده است.
+            هدف، ارائه یک رابط کاربری GIS سازمانی با نقشه تعاملی، فیلترهای سریع و نمودارهای تحلیلی است.
+          </p>
+          <ul class="clean-list">
+            <li><strong>نقشه:</strong> ابزار Hover برای مشاهده اطلاعات سریع، کلیک برای تحلیل ناحیه.</li>
+            <li><strong>رنگ‌ها:</strong> بر اساس طبقه‌بندی شدت خشکسالی (D0 تا D4) و وضعیت نرمال/مرطوب.</li>
+            <li><strong>کارایی:</strong> درخواست‌ها با Cache و بدون بارگذاری مجدد صفحه مدیریت می‌شوند.</li>
+            <li><strong>پشتیبانی RTL:</strong> چیدمان و تایپوگرافی برای فارسی بهینه شده است.</li>
+          </ul>
+          <div class="callout">
+            برای بهترین تجربه، از مرورگرهای به‌روز استفاده کنید. در موبایل می‌توانید پنل‌ها را از هدر باز/بسته کنید.
+          </div>
+        </div>
+        <div class="app-modal__footer">
+          <button id="aboutOk" class="btn btn-primary btn-sm" type="button">متوجه شدم</button>
         </div>
       </div>
-
-      <section id="valueBox" class="value-box mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-1">
-          <span id="mainMetricLabel"></span>
-          <span id="severityBadge" class="severity-badge">-</span>
-        </div>
-        <div class="main-value" id="mainMetricValue">--</div>
-      </section>
-
-      <div class="chart-wrap"><div id="tsChart"></div></div>
-
-      <h6 class="mt-4 mb-2">تحلیل روند</h6>
-      <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>در حال بارگذاری...</span></div>
-      <div id="kpiGrid" class="kpi-grid" hx-swap="innerHTML">
-        <div class="kpi-card"><small>ضریب کندال (τ)</small><strong id="tauVal">--</strong></div>
-        <div class="kpi-card"><small>مقدار p</small><strong id="pVal">--</strong></div>
-        <div class="kpi-card"><small>شیب سن</small><strong id="senVal">--</strong></div>
-        <div class="kpi-card"><small>مقدار</small><strong id="latestVal">--</strong></div>
-      </div>
-      <div id="trendText" class="trend-text mt-2">-</div>
-    </aside>
-
-    <div class="bottom-timeline card border-0">
-      <div class="card-body p-2 d-flex align-items-center justify-content-between gap-3 flex-wrap">
-        <div class="d-flex align-items-center gap-2">
-          <button id="toStart" class="btn btn-sm btn-light" title="Go to start of data range">‹‹</button>
-          <button id="prevMonth" class="btn btn-sm btn-light">‹</button>
-          <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
-          <button id="nextMonth" class="btn btn-sm btn-light">›</button>
-          <button id="toEnd" class="btn btn-sm btn-light" title="Go to end of data range">››</button>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-          <label class="small text-muted">سطح جغرافیایی</label>
-          <select id="level" class="form-select form-select-sm timeline-level">
-            <option value="station">ایستگاهی</option>
-            <option value="province">استانی</option>
-            <option value="county">شهرستانی</option>
-            <option value="level1">حوزه درجه یک</option>
-            <option value="level2">حوزه درجه دو</option>
-            <option value="level3">حوزه درجه سه</option>
-          </select>
-        </div>
-      </div>
-      <div class="month-strip-shell">
-        <button id="stripPrev" class="strip-nav">‹‹</button>
-        <div id="monthStrip" class="month-strip"></div>
-        <button id="stripNext" class="strip-nav">››</button>
-      </div>
     </div>
-  </main>
+  </div>
 
+  <!-- Vendor -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+
+  <!-- App -->
   <script src="config.js"></script>
   <script src="app.js"></script>
 </body>

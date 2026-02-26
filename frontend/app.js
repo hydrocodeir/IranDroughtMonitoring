@@ -1,10 +1,48 @@
 const API_BASE = window.API_BASE_URL || "http://localhost:8000";
-const map = L.map('map', { zoomControl: false }).setView([32.5, 53.6], 5);
-L.control.zoom({ position: 'bottomright' }).addTo(map);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 18 }).addTo(map);
+
+// Keep Bootstrap direction consistent with document direction.
+// Default is LTR, but RTL remains supported when <html dir="rtl">.
+function syncBootstrapDir() {
+  const dir = String(document.documentElement.getAttribute('dir') || 'ltr').toLowerCase();
+  const ltr = document.getElementById('bootstrapCss');
+  const rtl = document.getElementById('bootstrapRtlCss');
+  if (!ltr || !rtl) return;
+  const useRtl = dir === 'rtl';
+  rtl.disabled = !useRtl;
+  ltr.disabled = useRtl;
+}
+syncBootstrapDir();
+
+// ---------- Map (Leaflet) ----------
+const DEFAULT_VIEW = Object.freeze({ center: [32.5, 53.6], zoom: 5 });
+const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+// Keep controls away from the fixed bottom-left map tooltip and top-left legend.
+L.control.zoom({ position: 'topright' }).addTo(map);
+L.control.scale({ position: 'bottomleft', metric: true, imperial: false }).addTo(map);
+
+// Neutral basemaps (no keys required)
+const BASEMAPS = {
+  carto: L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  }),
+  osm: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }),
+  dark: L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap contributors &copy; CARTO'
+  })
+};
+
+let activeBasemap = BASEMAPS.carto.addTo(map);
 
 let geoLayer;
 let chart;
+let overviewChart;
 let selectedFeature = null;
 let latestMapFeatures = [];
 let currentRangeStart = null;
@@ -29,6 +67,7 @@ const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
 const dateEl = document.getElementById('date');
 const panelEl = document.getElementById('insightPanel');
+const sidebarEl = document.getElementById('sidebar');
 const closeBtn = document.getElementById('closePanel');
 const monthStripEl = document.getElementById('monthStrip');
 const valueBoxEl = document.getElementById('valueBox');
@@ -36,6 +75,26 @@ const modalBackdropEl = document.getElementById('modalBackdrop');
 const panelSpinnerEl = document.getElementById('panelSpinner');
 const kpiGridEl = document.getElementById('kpiGrid');
 const mapLoadingEl = document.getElementById('mapLoading');
+
+const mapSubtitleEl = document.getElementById('mapSubtitle');
+const overviewSubtitleEl = document.getElementById('overviewSubtitle');
+const overviewStatsEl = document.getElementById('overviewStats');
+const hoverBoxEl = document.getElementById('mapHover');
+const hoverNameEl = document.getElementById('hoverName');
+const hoverMetaEl = document.getElementById('hoverMeta');
+
+const basemapEl = document.getElementById('basemap');
+const resetViewBtn = document.getElementById('resetView');
+
+const toggleSidebarBtn = document.getElementById('toggleSidebar');
+const togglePanelBtn = document.getElementById('togglePanel');
+
+const aboutOpenBtn = document.getElementById('openAbout');
+const aboutModalEl = document.getElementById('aboutModal');
+const aboutCloseBtn = document.getElementById('aboutClose');
+const aboutOkBtn = document.getElementById('aboutOk');
+
+const headerEl = document.querySelector('.app-header');
 const timelineControls = [
   document.getElementById('toStart'),
   document.getElementById('prevMonth'),
@@ -45,6 +104,15 @@ const timelineControls = [
   document.getElementById('stripPrev'),
   document.getElementById('stripNext')
 ];
+
+const levelLabels = {
+  station: 'ایستگاهی',
+  province: 'استانی',
+  county: 'شهرستانی',
+  level1: 'حوزه درجه یک',
+  level2: 'حوزه درجه دو',
+  level3: 'حوزه درجه سه'
+};
 
 const droughtColors = {
   'D4': '#7f1d1d',
@@ -108,7 +176,9 @@ function formatPValue(value) {
     return `${sign}${formatNumber(Number(numberPart), 4)}`;
   }
 
-  return toPersianDigits((raw || '—').replace('.', '٫'));
+  // Keep as-is (but still enforce LTR marks around it)
+  const LRM = '\u200E';
+  return `${LRM}${(raw || '—')}${LRM}`;
 }
 
 function addMonth(yyyymm, delta) {
@@ -119,8 +189,9 @@ function addMonth(yyyymm, delta) {
 
 function toMonthLabel(yyyymm) {
   const [y, m] = yyyymm.split('-').map(Number);
-  const labels = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  return { month: labels[m - 1], year: y };
+  // Gregorian months in Persian (for UI consistency)
+  const labels = ['ژانویه','فوریه','مارس','آوریل','مه','ژوئن','ژوئیه','اوت','سپتامبر','اکتبر','نوامبر','دسامبر'];
+  return { month: labels[m - 1] || String(m), year: y };
 }
 
 function toISODate(yyyymm) { return `${yyyymm}-01`; }
@@ -222,7 +293,7 @@ function buildMonthStrip(centerMonth) {
     const outOfRange = (minDate && sourceMonth < minDate) || (maxDate && sourceMonth > maxDate);
     btn.className = `month-chip ${displayMonth === displayCenterMonth ? 'active' : ''}`;
     btn.disabled = outOfRange;
-    btn.innerHTML = `${month}${(displayMonth.endsWith('-01') || displayMonth.endsWith('-07')) ? `<span class="year-tag">${year}</span>` : ''}`;
+    btn.innerHTML = `${month}${(displayMonth.endsWith('-01') || displayMonth.endsWith('-07')) ? `<span class="year-tag">${toPersianDigits(year)}</span>` : ''}`;
     btn.onclick = () => {
       if (outOfRange) return;
       lastPanelQueryKey = null;
@@ -234,12 +305,68 @@ function buildMonthStrip(centerMonth) {
 }
 
 function setPanelOpen(open) {
-  panelEl.classList.toggle('open', open);
-  panelEl.setAttribute('aria-hidden', String(!open));
-  if (modalBackdropEl) {
-    modalBackdropEl.classList.toggle('open', open);
-    modalBackdropEl.setAttribute('aria-hidden', String(!open));
+  // On desktop, the panel is part of the layout; on mobile it's a drawer.
+  state.panelOpen = Boolean(open);
+  panelEl.classList.toggle('open', state.panelOpen);
+  panelEl.setAttribute('aria-hidden', String(isMobileViewport() ? !state.panelOpen : false));
+  updateBackdrop();
+
+   // Ensure charts reflow correctly after drawer transition.
+   setTimeout(() => {
+     try { chart?.resize?.(); } catch (_) {}
+     try { overviewChart?.resize?.(); } catch (_) {}
+   }, 260);
+}
+
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 991.98px)').matches;
+}
+
+const state = {
+  sidebarOpen: false,
+  panelOpen: false,
+  modalOpen: false,
+};
+
+function updateBackdrop() {
+  if (!modalBackdropEl) return;
+  const show = state.modalOpen || (isMobileViewport() && (state.sidebarOpen || state.panelOpen));
+  modalBackdropEl.classList.toggle('show', show);
+  modalBackdropEl.setAttribute('aria-hidden', String(!show));
+}
+
+function setSidebarOpen(open) {
+  if (!sidebarEl) return;
+  state.sidebarOpen = Boolean(open);
+  sidebarEl.classList.toggle('open', state.sidebarOpen);
+  sidebarEl.setAttribute('aria-hidden', String(isMobileViewport() ? !state.sidebarOpen : false));
+  updateBackdrop();
+}
+
+function setAboutModalOpen(open) {
+  if (!aboutModalEl) return;
+  state.modalOpen = Boolean(open);
+  aboutModalEl.classList.toggle('open', state.modalOpen);
+  aboutModalEl.setAttribute('aria-hidden', String(!state.modalOpen));
+  updateBackdrop();
+
+  if (state.modalOpen) {
+    setTimeout(() => {
+      (aboutOkBtn || aboutCloseBtn || aboutModalEl).focus?.();
+    }, 0);
   }
+}
+
+function updateHeaderHeightVar() {
+  if (!headerEl) return;
+  const h = Math.ceil(headerEl.getBoundingClientRect().height);
+  document.documentElement.style.setProperty('--app-header-h', `${h}px`);
+}
+
+function invalidateMapSoon() {
+  // Helps Leaflet reflow after resize / drawer transitions
+  setTimeout(() => map.invalidateSize(), 50);
+  setTimeout(() => map.invalidateSize(), 280);
 }
 
 function applySeverityStyle(sev) {
@@ -256,7 +383,7 @@ function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
   document.getElementById('panelTitle').textContent = `${featureName}`;
   document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
+  document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
   applySeverityStyle(sev);
@@ -264,18 +391,38 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
   document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
   document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
-  document.getElementById('latestVal').textContent = formatNumber(kpi.latest);
-  document.getElementById('trendText').textContent = `روند: ${(kpi.trend?.trend === 'decreasing' ? 'کاهشی' : kpi.trend?.trend === 'increasing' ? 'افزایشی' : kpi.trend?.trend === 'no trend' ? 'بدون روند' : (kpi.trend?.trend || '—'))} | میانگین: ${formatNumber(kpi.mean)} | کمینه: ${formatNumber(kpi.min)} | بیشینه: ${formatNumber(kpi.max)}`;
+
+  // Trend status + note (professional style like reference)
+  const pRaw = kpi.trend?.p_value;
+  const pNum = (() => {
+    if (Number.isFinite(Number(pRaw))) return Number(pRaw);
+    const raw = String(pRaw ?? '').trim();
+    const match = raw.match(/(-?\d*\.?\d+)/);
+    return match ? Number(match[1]) : NaN;
+  })();
+
+  const significant = Number.isFinite(pNum) ? (pNum < 0.05) : false;
+  const trendStatusEl = document.getElementById('trendStatus');
+  if (trendStatusEl) trendStatusEl.textContent = significant ? 'Significant Trend' : 'No Significant Trend';
+
+  const trendNoteEl = document.getElementById('trendNote');
+  if (trendNoteEl) {
+    if (!Number.isFinite(pNum)) trendNoteEl.textContent = '—';
+    else trendNoteEl.textContent = significant ? 'Statistically significant (p < 0.05)' : 'Not statistically significant (p ≥ 0.05)';
+  }
 }
 
 function renderPanelLoading(featureName = 'ناحیه') {
   document.getElementById('panelTitle').textContent = `${featureName}`;
   document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
+  document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexEl.value)}`;
   document.getElementById('mainMetricValue').textContent = '...';
   document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
-  document.getElementById('trendText').textContent = 'درحال بارگذاری داده‌ها...';
-  ['tauVal', 'pVal', 'senVal', 'latestVal'].forEach((id) => {
+  const trendStatusEl = document.getElementById('trendStatus');
+  const trendNoteEl = document.getElementById('trendNote');
+  if (trendStatusEl) trendStatusEl.textContent = '—';
+  if (trendNoteEl) trendNoteEl.textContent = 'در حال بارگذاری...';
+  ['tauVal', 'pVal', 'senVal'].forEach((id) => {
     document.getElementById(id).textContent = '...';
   });
 }
@@ -308,7 +455,11 @@ function setTimelineDisabled(disabled) {
 }
 
 function setNoDataMessage(show, message = 'No data for this selection') {
-  if (show) document.getElementById('trendText').textContent = message;
+  if (!show) return;
+  const trendStatusEl = document.getElementById('trendStatus');
+  const trendNoteEl = document.getElementById('trendNote');
+  if (trendStatusEl) trendStatusEl.textContent = '—';
+  if (trendNoteEl) trendNoteEl.textContent = message;
 }
 
 function applyDateBounds(minDate, maxDate) {
@@ -363,6 +514,27 @@ function calculateTrendLine(data) {
   return data.map((point, i) => [point[0], slope * i + intercept]);
 }
 
+function getStartValueForLastYears(parsedData, years = 5) {
+  if (!Array.isArray(parsedData) || parsedData.length === 0) return null;
+  const end = new Date(parsedData[parsedData.length - 1][0]);
+  if (Number.isNaN(end.getTime())) {
+    const fallback = Math.max(parsedData.length - (years * 12), 0);
+    return parsedData[fallback]?.[0] ?? parsedData[0][0];
+  }
+
+  const start = new Date(end);
+  start.setUTCFullYear(end.getUTCFullYear() - years);
+  let idx = 0;
+  for (let i = 0; i < parsedData.length; i += 1) {
+    const dt = new Date(parsedData[i][0]);
+    if (!Number.isNaN(dt.getTime()) && dt >= start) {
+      idx = i;
+      break;
+    }
+  }
+  return parsedData[idx][0];
+}
+
 function renderChart(ts, indexLabel) {
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
@@ -394,24 +566,39 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })),
-    {
-      name: 'Selected month',
-      xAxis: selectedDate,
-      lineStyle: { color: '#2563eb', type: 'dashed', width: 1.8 },
-      label: { show: false }
-    }
+    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line }))
   ];
+
+  const endValue = parsedData[parsedData.length - 1]?.[0];
+  // Initial viewport: most recent year
+  const startValue = getStartValueForLastYears(parsedData, 1) || parsedData[0]?.[0];
+  const timelineSeriesData = endValue
+    ? [[selectedDate, -3], [selectedDate, 2]]
+    : [];
 
 
   const option = {
-    animation: false,
+    animation: true,
     animationDuration: 0,
     animationDurationUpdate: 0,
+    textStyle: { fontFamily: 'Vazirmatn' },
     title: {
       text: '',
-      left: 'left',
-      textStyle: { fontWeight: 'bold', fontSize: 20, color: '#1f2937' }
+      left: 0,
+      top: 6,
+      textStyle: { fontWeight: 900, fontSize: 16, color: '#101828' }
+    },
+    toolbox: {
+      right: 10,
+      top: 6,
+      itemSize: 16,
+      iconStyle: { borderColor: '#667085' },
+      emphasis: { iconStyle: { borderColor: '#2563eb' } },
+      feature: {
+        dataZoom: { yAxisIndex: 'none' },
+        restore: {},
+        saveAsImage: { name: 'timeseries', pixelRatio: 2 }
+      }
     },
     tooltip: {
       trigger: 'axis',
@@ -419,24 +606,46 @@ function renderChart(ts, indexLabel) {
       formatter: (params) => {
         const entries = Array.isArray(params) ? params : [params];
         const rawAxis = entries[0]?.axisValue ?? entries[0]?.value?.[0] ?? '';
-        const axisValue = formatChartDate(rawAxis);
-        const rows = entries.map((item) => {
-          const value = Array.isArray(item.value) ? item.value[1] : item.value;
-          return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
-        });
-        return [axisValue, ...rows].join('<br/>');
+        const axisValue = (() => {
+          const dt = new Date(rawAxis);
+          if (!Number.isNaN(dt.getTime())) {
+            return dt.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+          }
+          return formatChartDate(rawAxis);
+        })();
+
+        const visible = entries
+          // Hide helper series from tooltip (Trend + Timeline)
+          .filter((item) => !['Timeline', 'Trend'].includes(item?.seriesName))
+          .map((item) => {
+            const value = Array.isArray(item.value) ? item.value[1] : item.value;
+            return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
+          });
+
+        const primary = entries.find((e) => e?.seriesName === formatIndexLabel(indexLabel)) || entries[0];
+        const primaryVal = Array.isArray(primary?.value) ? Number(primary.value[1]) : Number(primary?.value);
+        const sev = Number.isFinite(primaryVal) ? classify(primaryVal) : null;
+        const sevRow = sev ? `Severity: <strong>${sev}</strong>` : null;
+        const html = [axisValue, ...visible, sevRow].filter(Boolean).join('<br/>');
+        return `
+          <div dir="ltr" style="text-align:left; unicode-bidi:plaintext;">
+            ${html}
+          </div>
+        `;
       }
     },
     legend: {
-      top: 0,
-      right: 8,
-      textStyle: { color: '#4b5563' }
+      bottom: 52,
+      left: 'center',
+      itemWidth: 16,
+      itemHeight: 8,
+      textStyle: { color: '#475467' }
     },
     grid: {
       left: '7%',
-      right: '10%',
-      bottom: '20%',
-      top: 50,
+      right: '8%',
+      bottom: 94,
+      top: 52,
       containLabel: true
     },
     xAxis: {
@@ -487,24 +696,36 @@ function renderChart(ts, indexLabel) {
     dataZoom: [
       {
         type: 'inside',
-        filterMode: 'none'
+        xAxisIndex: 0,
+        filterMode: 'none',
+        // Horizontal scrolling / panning:
+        // - Mouse wheel pans by default (older years)
+        // - Hold SHIFT and use wheel to zoom
+        zoomOnMouseWheel: 'shift',
+        moveOnMouseWheel: true,
+        moveOnMouseMove: true
       },
       {
         type: 'slider',
         show: true,
-        startValue: parsedData[Math.max(parsedData.length - 60, 0)]?.[0],
-        endValue: parsedData[parsedData.length - 1]?.[0],
-        bottom: 10,
-        height: 25,
+        xAxisIndex: 0,
+        startValue,
+        endValue,
+        bottom: 12,
+        height: 26,
+        showDetail: false,
+        showDataShadow: true,
         borderColor: '#d1d5db',
-        fillerColor: 'rgba(167, 183, 204, 0.4)',
-        handleStyle: { color: '#a7b7cc' },
+        backgroundColor: 'rgba(255, 255, 255, 0.55)',
+        fillerColor: 'rgba(148, 163, 184, 0.35)',
+        handleStyle: { color: '#94a3b8', borderColor: '#94a3b8' },
+        handleSize: '88%',
         filterMode: 'none'
       }
     ],
     series: [
       {
-        name: indexLabel.toUpperCase(),
+        name: formatIndexLabel(indexLabel),
         type: 'line',
         data: parsedData,
         symbol: 'none',
@@ -517,19 +738,32 @@ function renderChart(ts, indexLabel) {
         markLine: {
           animation: false,
           symbol: ['none', 'none'],
-          label: { position: 'end', formatter: '{b}', color: '#374151', fontSize: 12 },
+          label: { position: 'end', formatter: '{b}', color: '#475467', fontSize: 12 },
           lineStyle: { type: 'dashed', color: '#9ca3af', width: 1 },
           data: markLineData
         }
       },
       {
-        name: 'روند',
+        name: 'Trend',
         type: 'line',
         data: trendData,
         symbol: 'none',
+        silent: true,
+        tooltip: { show: false },
         animation: false,
         lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
         itemStyle: { color: '#ef4444' }
+      },
+      {
+        name: 'Timeline',
+        type: 'line',
+        data: timelineSeriesData,
+        symbol: 'none',
+        tooltip: { show: false },
+        animation: false,
+        lineStyle: { color: '#2563eb', width: 1.8, type: 'dashed' },
+        itemStyle: { color: '#2563eb' },
+        z: 4
       }
     ]
   };
@@ -540,25 +774,142 @@ function renderChart(ts, indexLabel) {
   lastChartRenderKey = derivedKey;
 }
 
+function formatIndexLabel(value) {
+  const raw = String(value || '');
+  const m = raw.match(/^(spi|spei)(\d+)$/i);
+  if (m) return `${m[1].toUpperCase()}-${m[2]}`;
+  return raw.toUpperCase();
+}
+
+function updateSubtitles() {
+  const levelLabel = levelLabels[levelEl.value] || levelEl.value;
+  const dateLabel = toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'));
+  const idxLabel = formatIndexLabel(indexEl.value);
+  const text = `${idxLabel} • ${dateLabel} • سطح: ${levelLabel}`;
+  if (mapSubtitleEl) mapSubtitleEl.textContent = text;
+  if (overviewSubtitleEl) overviewSubtitleEl.textContent = text;
+
+  const legendTitle = document.getElementById('legendTitle');
+  if (legendTitle) legendTitle.textContent = `راهنمای شدت خشکسالی • ${idxLabel}`;
+}
+
+function ensureOverviewChart() {
+  const dom = document.getElementById('overviewChart');
+  if (!dom) return null;
+  if (!overviewChart) overviewChart = echarts.init(dom);
+  return overviewChart;
+}
+
+function renderOverview(features) {
+  updateSubtitles();
+  const chartInstance = ensureOverviewChart();
+  if (!chartInstance) return;
+
+  const order = ['Normal/Wet', 'D0', 'D1', 'D2', 'D3', 'D4'];
+  const labelsFa = {
+    'Normal/Wet': 'نرمال/مرطوب',
+    'D0': 'خشکی غیرعادی',
+    'D1': 'خشکسالی متوسط',
+    'D2': 'خشکسالی شدید',
+    'D3': 'خشکسالی بسیار شدید',
+    'D4': 'خشکسالی استثنایی'
+  };
+
+  const counts = order.reduce((acc, k) => (acc[k] = 0, acc), {});
+  (features || []).forEach((f) => {
+    const s = f?.properties?.severity;
+    if (counts[s] != null) counts[s] += 1;
+  });
+  const total = order.reduce((a, k) => a + (counts[k] || 0), 0);
+
+  const data = order
+    .filter((k) => (counts[k] || 0) > 0)
+    .map((k) => ({
+      name: labelsFa[k] || k,
+      value: counts[k],
+      itemStyle: { color: droughtColors[k] || '#94a3b8' }
+    }));
+
+  chartInstance.setOption({
+    animation: false,
+    tooltip: {
+      trigger: 'item',
+      formatter: (p) => {
+        const percent = total ? (p.value / total) * 100 : 0;
+        return `${p.marker}${p.name}<br/>تعداد: ${toPersianDigits(p.value)}<br/>درصد: ${toPersianDigits(percent.toFixed(1).replace('.', '٫'))}٪`;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: 'center',
+      itemWidth: 12,
+      itemHeight: 12,
+      textStyle: { color: '#475467', fontFamily: 'Vazirmatn' }
+    },
+    series: [
+      {
+        type: 'pie',
+        radius: ['42%', '70%'],
+        center: ['50%', '44%'],
+        avoidLabelOverlap: true,
+        label: { show: false },
+        labelLine: { show: false },
+        data
+      }
+    ]
+  }, true);
+
+  // In case the panel is a drawer / off-canvas (mobile), force a reflow.
+  setTimeout(() => {
+    try { chartInstance.resize?.(); } catch (_) {}
+  }, 0);
+
+  if (overviewStatsEl) {
+    overviewStatsEl.innerHTML = total
+      ? order.map((k) => {
+        const c = counts[k] || 0;
+        const pct = total ? (c / total) * 100 : 0;
+        const label = labelsFa[k] || k;
+        return `
+          <div class="stat-row">
+            <div class="stat-left">
+              <span class="swatch" style="background:${droughtColors[k] || '#94a3b8'}"></span>
+              <span>${label}</span>
+            </div>
+            <div>${toPersianDigits(c)} عدد --- ${toPersianDigits(pct.toFixed(1).replace('.', '٫'))}٪</div>
+          </div>
+        `;
+      }).join('')
+      : '<div class="text-muted small">برای این انتخاب داده‌ای در دسترس نیست.</div>';
+  }
+}
+
 function addMapLegend() {
-  const legend = L.control({ position: 'bottomright' });
+  // Legend: top-left, collapsed by default.
+  const legend = L.control({ position: 'topleft' });
   legend.onAdd = () => {
-    const div = L.DomUtil.create('div', 'map-legend');
+    const div = L.DomUtil.create('div', 'map-legend collapsed');
     div.id = 'mapLegendBox';
     const items = [
-      ['N0', 'Normal/Wet', '#86efac'],
-      ['D0', 'Abnormally Dry', '#fde047'],
-      ['D1', 'Moderate Drought', '#fbbf24'],
-      ['D2', 'Severe Drought', '#f97316'],
-      ['D3', 'Extreme Drought', '#dc2626'],
-      ['D4', 'Exceptional Drought', '#7f1d1d']
+      ['NW', 'نرمال/مرطوب', '#86efac'],
+      ['D0', 'خشکی غیرعادی', '#fde047'],
+      ['D1', 'خشکسالی متوسط', '#fbbf24'],
+      ['D2', 'خشکسالی شدید', '#f97316'],
+      ['D3', 'خشکسالی بسیار شدید', '#dc2626'],
+      ['D4', 'خشکسالی استثنایی', '#7f1d1d']
     ];
     div.innerHTML = `
       <div class="head">
-        <button id="legendToggle" class="toggle">‹</button>
-        <h6>Drought Severity</h6>
+        <h6 id="legendTitle">راهنمای شدت خشکسالی</h6>
+        <button id="legendToggle" class="toggle" type="button" aria-label="نمایش راهنما">▸</button>
       </div>
-      ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}`;
+      <div class="legend-body">
+        ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
+      </div>`;
+
+    // Prevent map interactions while using the legend.
+    L.DomEvent.disableClickPropagation(div);
+    L.DomEvent.disableScrollPropagation(div);
     return div;
   };
   legend.addTo(map);
@@ -568,10 +919,28 @@ function addMapLegend() {
     const legendBox = document.getElementById('mapLegendBox');
     if (!toggle || !legendBox) return;
     toggle.addEventListener('click', () => {
-      legendBox.classList.toggle('compact');
-      toggle.textContent = legendBox.classList.contains('compact') ? '›' : '‹';
+      legendBox.classList.toggle('collapsed');
+      const collapsed = legendBox.classList.contains('collapsed');
+      toggle.textContent = collapsed ? '▸' : '▾';
+      toggle.setAttribute('aria-label', collapsed ? 'نمایش راهنما' : 'جمع‌کردن راهنما');
     });
   }, 100);
+}
+
+function setHoverInfo(feature, indexName) {
+  if (!hoverBoxEl || !hoverNameEl || !hoverMetaEl) return;
+  if (!feature) {
+    hoverBoxEl.classList.add('is-hidden');
+    hoverBoxEl.setAttribute('aria-hidden', 'true');
+    return;
+  }
+  const name = feature?.properties?.name || '—';
+  const sev = feature?.properties?.severity || '—';
+  const value = feature?.properties?.value == null ? '—' : formatNumber(feature?.properties?.value);
+  hoverNameEl.textContent = name;
+  hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${severityLong[sev] || sev}`;
+  hoverBoxEl.classList.remove('is-hidden');
+  hoverBoxEl.setAttribute('aria-hidden', 'false');
 }
 
 async function loadMap() {
@@ -601,23 +970,49 @@ async function loadMap() {
   latestMapFeatures = data.features || [];
   if (geoLayer) map.removeLayer(geoLayer);
 
+  const defaultPolyStyle = (f) => ({
+    color: '#334155',
+    weight: 1,
+    opacity: 1,
+    fillOpacity: 0.78,
+    fillColor: severityColor(f?.properties?.severity)
+  });
+
+  const hoverPolyStyle = {
+    color: '#0f172a',
+    weight: 2,
+    fillOpacity: 0.9
+  };
+
   geoLayer = L.geoJSON(data, {
-    style: f => ({ color: '#334155', weight: 1, fillOpacity: 0.78, fillColor: severityColor(f.properties.severity) }),
+    style: defaultPolyStyle,
     pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-      radius: 8,
+      radius: 7,
       weight: 1.5,
       color: '#0f172a',
       fillColor: severityColor(feature?.properties?.severity),
       fillOpacity: 0.95
     }),
     onEachFeature: (feature, layer) => {
-      const mapValue = feature.properties.value == null ? '—' : formatNumber(feature.properties.value);
-      layer.bindTooltip(`<div><strong>${feature.properties.name}</strong><br>شاخص ${index.toUpperCase()}: ${mapValue}<br>${severityLong[feature.properties.severity] || feature.properties.severity}</div>`);
+      layer.on('mouseover', () => {
+        if (layer.setStyle) layer.setStyle(hoverPolyStyle);
+        if (layer.bringToFront) layer.bringToFront();
+        setHoverInfo(feature, index);
+      });
+
+      layer.on('mouseout', () => {
+        if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
+        setHoverInfo(null);
+      });
+
       layer.on('click', () => onRegionClick(feature));
     }
   }).addTo(map);
 
   if (data.features?.length) map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+
+  // Update overview chart + subtitles
+  renderOverview(latestMapFeatures);
 }
 
 async function onRegionClick(feature) {
@@ -650,12 +1045,6 @@ async function onRegionClick(feature) {
         fetchCached(timeseriesCache, seriesKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
         fetchCached(timeseriesCache, seriesAllKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
       ]);
-      if (window.htmx && kpiGridEl) {
-        htmx.ajax('GET', `${API_BASE}/panel-fragment?region_id=${regionId}&level=${levelName}&index=${indexName}`, {
-          target: '#kpiGrid',
-          swap: 'innerHTML'
-        });
-      }
     } catch (_) {}
 
     if (reqId !== panelRequestSeq) return;
@@ -667,7 +1056,6 @@ async function onRegionClick(feature) {
 
     if (!rangeSeries.length) {
       setTimelineDisabled(true);
-      setNoDataMessage(true, 'No data for this selection');
       renderKPI({
         latest: NaN,
         min: NaN,
@@ -676,6 +1064,7 @@ async function onRegionClick(feature) {
         severity: 'N/A',
         trend: { tau: NaN, p_value: '-', sen_slope: NaN, trend: '—' }
       }, featureName, indexName);
+      setNoDataMessage(true, 'No data for this selection');
       renderChart([], indexName);
       togglePanelSpinner(false);
       return;
@@ -807,11 +1196,46 @@ function setupEvents() {
     debouncedDateChanged();
   });
 
-  closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
+  if (closeBtn) closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
 
-  panelEl.addEventListener('click', (e) => e.stopPropagation());
+  if (panelEl) panelEl.addEventListener('click', (e) => e.stopPropagation());
+
+  // Mobile drawers
+  if (toggleSidebarBtn) {
+    toggleSidebarBtn.addEventListener('click', () => {
+      setSidebarOpen(!state.sidebarOpen);
+      setPanelOpen(false);
+      invalidateMapSoon();
+    });
+  }
+  if (togglePanelBtn) {
+    togglePanelBtn.addEventListener('click', () => {
+      setPanelOpen(!state.panelOpen);
+      setSidebarOpen(false);
+      invalidateMapSoon();
+    });
+  }
+
+  // Backdrop click closes drawers / modal
+  if (modalBackdropEl) {
+    modalBackdropEl.addEventListener('click', () => {
+      setSidebarOpen(false);
+      setPanelOpen(false);
+      setAboutModalOpen(false);
+      invalidateMapSoon();
+    });
+  }
+
+  // Modal
+  if (aboutOpenBtn) aboutOpenBtn.addEventListener('click', () => setAboutModalOpen(true));
+  if (aboutCloseBtn) aboutCloseBtn.addEventListener('click', () => setAboutModalOpen(false));
+  if (aboutOkBtn) aboutOkBtn.addEventListener('click', () => setAboutModalOpen(false));
+
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && panelEl.classList.contains('open')) { lastPanelQueryKey = null; setPanelOpen(false); }
+    if (e.key !== 'Escape') return;
+    if (state.modalOpen) { setAboutModalOpen(false); return; }
+    if (isMobileViewport() && state.sidebarOpen) { setSidebarOpen(false); return; }
+    if (isMobileViewport() && state.panelOpen) { lastPanelQueryKey = null; setPanelOpen(false); return; }
   });
 
   document.getElementById('search').addEventListener('input', (e) => {
@@ -822,10 +1246,51 @@ function setupEvents() {
       if (layer.setStyle) layer.setStyle({ opacity: hit ? 1 : .2, fillOpacity: hit ? .78 : .1 });
     });
   });
+
+  // Basemap
+  if (basemapEl) {
+    basemapEl.addEventListener('change', () => {
+      const key = basemapEl.value;
+      const next = BASEMAPS[key] || BASEMAPS.carto;
+      if (activeBasemap) map.removeLayer(activeBasemap);
+      activeBasemap = next.addTo(map);
+    });
+  }
+
+  if (resetViewBtn) {
+    resetViewBtn.addEventListener('click', () => {
+      map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
+    });
+  }
+
+  // Responsive housekeeping
+  window.addEventListener('resize', () => {
+    updateHeaderHeightVar();
+    if (overviewChart) overviewChart.resize();
+    invalidateMapSoon();
+
+    // If we leave mobile, clear drawer states
+    if (!isMobileViewport()) {
+      state.sidebarOpen = false;
+      state.panelOpen = false;
+      sidebarEl?.classList.remove('open');
+      panelEl?.classList.remove('open');
+      sidebarEl?.setAttribute('aria-hidden', 'false');
+      panelEl?.setAttribute('aria-hidden', 'false');
+      updateBackdrop();
+    } else {
+      // On mobile, keep closed unless explicitly opened
+      setSidebarOpen(state.sidebarOpen);
+      setPanelOpen(state.panelOpen);
+    }
+  });
 }
 
 populateIndexOptions();
 addMapLegend();
 setupEvents();
+updateHeaderHeightVar();
+updateSubtitles();
 buildMonthStrip(dateEl.value);
 loadMap();
+
