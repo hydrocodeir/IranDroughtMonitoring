@@ -6,11 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Use uv-managed virtual environment instead of raw pip installs
+ENV PIP_DEFAULT_TIMEOUT=300 \
+    PIP_RETRIES=10 \
+    UV_HTTP_TIMEOUT=300
 RUN pip install --no-cache-dir uv
 COPY backend/requirements.txt /app/requirements.txt
 RUN uv venv /opt/venv \
     && . /opt/venv/bin/activate \
-    && uv pip install --no-cache -r /app/requirements.txt
+    && uv pip install -r /app/requirements.txt
 
 COPY backend /app/backend
 COPY data /app/data

@@ -1,5 +1,6 @@
-FROM node:20-alpine
+FROM python:3.11-alpine
 WORKDIR /usr/src/app
-RUN npm install -g live-server
-EXPOSE 8080
-CMD ["live-server", "--host=0.0.0.0", "--port=8080", "--watch=."]
+
+RUN pip install --no-cache-dir livereload
+
+CMD ["python", "-c", "from livereload import Server; s=Server(); s.watch('.', delay=0.2); s.serve(root='.', host='0.0.0.0', port=8080)"]

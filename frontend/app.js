@@ -254,8 +254,8 @@ function applySeverityStyle(sev) {
 
 function renderKPI(kpi, featureName, indexLabel) {
   const sev = kpi.severity || '-';
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
-  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
+  document.getElementById('panelTitle').textContent = `${featureName}`;
+  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexLabel.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
@@ -269,8 +269,8 @@ function renderKPI(kpi, featureName, indexLabel) {
 }
 
 function renderPanelLoading(featureName = 'ناحیه') {
-  document.getElementById('panelTitle').textContent = `${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
-  document.getElementById('panelSubtitle').textContent = `ناحیه انتخاب‌شده: ${featureName}`;
+  document.getElementById('panelTitle').textContent = `${featureName}`;
+  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${indexEl.value.toUpperCase()}`;
   document.getElementById('mainMetricValue').textContent = '...';
   document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
