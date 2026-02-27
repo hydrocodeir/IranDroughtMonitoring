@@ -24,12 +24,17 @@ from .datasets_store import (
 
 app = FastAPI(title="Iran Drought Monitoring API")
 
+origins = [
+    "http://localhost:8080",
+    "http://draught.werifum.ir"
+]
+
 # GZip helps when map responses grow (GeoJSON can be large).
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
