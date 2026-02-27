@@ -1,4 +1,4 @@
-.PHONY: dev prod
+.PHONY: dev prod precompute-trends
 
 dev:
 	docker compose -f docker-compose.dev.yml up --build
@@ -17,3 +17,5 @@ dev-down:
 
 prod-down:
 	docker compose -f docker-compose.yml down
+precompute-trends:
+	docker compose -f docker-compose.dev.yml exec backend python /app/backend/scripts/precompute_trends.py

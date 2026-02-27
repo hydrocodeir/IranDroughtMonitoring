@@ -591,19 +591,49 @@ def fetch_values_up_to(
     return [float(r.v) for r in rows if r.v is not None]
 
 
-def fetch_trend_stats_all(*, dataset_key: str, index: str) -> dict[str, dict[str, Any]]:
-    """Compute (and return) full-history trend statistics for all features.
+def ensure_trend_stats_table() -> None:
+    """Create the persistent trend cache table if it does not exist."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                CREATE TABLE IF NOT EXISTS trend_stats (
+                  dataset_key TEXT NOT NULL,
+                  index_name TEXT NOT NULL,
+                  feature_id TEXT NOT NULL,
+                  tau DOUBLE PRECISION,
+                  p_value DOUBLE PRECISION,
+                  sen_slope DOUBLE PRECISION,
+                  trend TEXT,
+                  trend_category TEXT,
+                  trend_label_en TEXT,
+                  trend_label_fa TEXT,
+                  trend_symbol TEXT,
+                  updated_at TIMESTAMPTZ DEFAULT NOW(),
+                  PRIMARY KEY (dataset_key, index_name, feature_id)
+                )
+                """
+            )
+        )
+        conn.execute(
+            text(
+                """
+                CREATE INDEX IF NOT EXISTS idx_trend_stats_lookup
+                ON trend_stats (dataset_key, index_name)
+                """
+            )
+        )
 
-    This is used to attach *fixed* trend attributes to map features.
-    Trend statistics must NOT change with UI date sliders.
 
-    Returns a mapping: feature_id -> trend dict.
-    """
+def precompute_trend_stats(*, dataset_key: str, index: str) -> int:
+    """Compute and persist full-history trend statistics for all features."""
 
-    _ = resolve_dataset_key(dataset_key)
+    key = resolve_dataset_key(dataset_key)
     idx = validate_index_name(dataset_key, index)
     idx_sql = '"' + idx.replace('"', '') + '"'
     ts = _ts_table(dataset_key)
+
+    ensure_trend_stats_table()
 
     sql = text(
         f"""
@@ -614,14 +644,134 @@ def fetch_trend_stats_all(*, dataset_key: str, index: str) -> dict[str, dict[str
         """
     )
 
-    out: dict[str, dict[str, Any]] = {}
     with engine.begin() as conn:
         rows = conn.execute(sql).fetchall()
+        conn.execute(
+            text("DELETE FROM trend_stats WHERE dataset_key = :k AND index_name = :i"),
+            {"k": key, "i": idx},
+        )
+
+        for r in rows:
+            vals = [float(v) for v in list(r.vals or []) if v is not None]
+            trend = mann_kendall_and_sen(vals)
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO trend_stats (
+                      dataset_key, index_name, feature_id,
+                      tau, p_value, sen_slope, trend,
+                      trend_category, trend_label_en, trend_label_fa, trend_symbol,
+                      updated_at
+                    )
+                    VALUES (
+                      :k, :i, :fid,
+                      :tau, :p, :slope, :trend,
+                      :cat, :en, :fa, :sym,
+                      NOW()
+                    )
+                    """
+                ),
+                {
+                    "k": key,
+                    "i": idx,
+                    "fid": str(r.feature_id),
+                    "tau": trend.get("tau"),
+                    "p": trend.get("p_value"),
+                    "slope": trend.get("sen_slope"),
+                    "trend": trend.get("trend"),
+                    "cat": trend.get("trend_category"),
+                    "en": trend.get("trend_label_en"),
+                    "fa": trend.get("trend_label_fa"),
+                    "sym": trend.get("trend_symbol"),
+                },
+            )
+
+    return len(rows)
+
+
+def fetch_trend_stats_all(*, dataset_key: str, index: str) -> dict[str, dict[str, Any]]:
+    """Return full-history trend statistics for all features from persistent cache.
+
+    This is used to attach *fixed* trend attributes to map features.
+    Trend statistics must NOT change with UI date sliders.
+
+    Returns a mapping: feature_id -> trend dict.
+    """
+
+    key = resolve_dataset_key(dataset_key)
+    idx = validate_index_name(dataset_key, index)
+    ensure_trend_stats_table()
+
+    sql = text(
+        """
+        SELECT feature_id, tau, p_value, sen_slope, trend,
+               trend_category, trend_label_en, trend_label_fa, trend_symbol
+        FROM trend_stats
+        WHERE dataset_key = :k AND index_name = :i
+        """
+    )
+    out: dict[str, dict[str, Any]] = {}
+    with engine.begin() as conn:
+        rows = conn.execute(sql, {"k": key, "i": idx}).fetchall()
 
     for r in rows:
-        vals = list(r.vals or [])
-        # array_agg can contain Decimals depending on driver
-        cleaned = [float(v) for v in vals if v is not None]
-        out[str(r.feature_id)] = mann_kendall_and_sen(cleaned)
+        out[str(r.feature_id)] = {
+            "tau": float(r.tau) if r.tau is not None else None,
+            "p_value": float(r.p_value) if r.p_value is not None else None,
+            "sen_slope": float(r.sen_slope) if r.sen_slope is not None else None,
+            "trend": r.trend,
+            "trend_category": r.trend_category,
+            "trend_label_en": r.trend_label_en,
+            "trend_label_fa": r.trend_label_fa,
+            "trend_symbol": r.trend_symbol,
+        }
+
+    if out:
+        return out
+
+    precompute_trend_stats(dataset_key=dataset_key, index=index)
+    with engine.begin() as conn:
+        rows = conn.execute(sql, {"k": key, "i": idx}).fetchall()
+    for r in rows:
+        out[str(r.feature_id)] = {
+            "tau": float(r.tau) if r.tau is not None else None,
+            "p_value": float(r.p_value) if r.p_value is not None else None,
+            "sen_slope": float(r.sen_slope) if r.sen_slope is not None else None,
+            "trend": r.trend,
+            "trend_category": r.trend_category,
+            "trend_label_en": r.trend_label_en,
+            "trend_label_fa": r.trend_label_fa,
+            "trend_symbol": r.trend_symbol,
+        }
 
     return out
+
+
+def fetch_precomputed_trend(*, dataset_key: str, index: str, feature_id: str) -> dict[str, Any] | None:
+    """Fetch one feature trend from precomputed storage."""
+    key = resolve_dataset_key(dataset_key)
+    idx = validate_index_name(dataset_key, index)
+    ensure_trend_stats_table()
+    sql = text(
+        """
+        SELECT tau, p_value, sen_slope, trend,
+               trend_category, trend_label_en, trend_label_fa, trend_symbol
+        FROM trend_stats
+        WHERE dataset_key = :k AND index_name = :i AND feature_id = :fid
+        LIMIT 1
+        """
+    )
+    with engine.begin() as conn:
+        row = conn.execute(sql, {"k": key, "i": idx, "fid": str(feature_id)}).fetchone()
+    if not row:
+        return None
+    return {
+        "tau": float(row.tau) if row.tau is not None else None,
+        "p_value": float(row.p_value) if row.p_value is not None else None,
+        "sen_slope": float(row.sen_slope) if row.sen_slope is not None else None,
+        "trend": row.trend,
+        "trend_category": row.trend_category,
+        "trend_label_en": row.trend_label_en,
+        "trend_label_fa": row.trend_label_fa,
+        "trend_symbol": row.trend_symbol,
+    }
