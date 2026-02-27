@@ -11,6 +11,64 @@ function syncBootstrapDir() {
   rtl.disabled = !useRtl;
   ltr.disabled = useRtl;
 }
+
+async function loadDatasetsList() {
+  // Populate the dataset (level) selector from the backend registry.
+  // Falls back to a single "station" option if /datasets is unavailable.
+  let datasets = [];
+  try {
+    datasets = await fetchJson(`${API_BASE}/datasets`);
+  } catch (_) {
+    datasets = [{ key: 'station', title: levelLabels.station || 'station' }];
+  }
+
+  datasetTitles.clear();
+  levelEl.innerHTML = '';
+
+  datasets.forEach((d) => {
+    const rawKey = d.key || d.dataset_key || d.level || d.name;
+    if (!rawKey) return;
+    // Canonicalize to lower-case so URLs are stable. The backend resolves
+    // dataset keys case-insensitively.
+    const key = String(rawKey).trim().toLowerCase();
+    const title = d.title || levelLabels[key] || String(rawKey);
+    datasetTitles.set(key, title);
+    const opt = document.createElement('option');
+    opt.value = key;
+    opt.textContent = title;
+    levelEl.appendChild(opt);
+  });
+
+  if (!levelEl.value && levelEl.options.length) {
+    levelEl.value = levelEl.options[0].value;
+  }
+}
+
+async function loadMetaForSelectedDataset() {
+  const level = levelEl.value || 'station';
+  const meta = await fetchJson(`${API_BASE}/meta?level=${encodeURIComponent(level)}`);
+
+  // Populate indices based on the imported CSV header for this dataset.
+  if (Array.isArray(meta.indices) && meta.indices.length) {
+    indexEl.innerHTML = meta.indices.map((idx) => {
+      const m = String(idx).match(/^(spi|spei)(\d+)$/i);
+      const label = m ? `${m[1].toUpperCase()}-${m[2]}` : String(idx).toUpperCase();
+      return `<option value="${idx}">${label}</option>`;
+    }).join('');
+
+    const preferred = ['spi3', 'spei3', meta.indices[0]];
+    const chosen = preferred.find((v) => meta.indices.includes(v)) || meta.indices[0];
+    indexEl.value = meta.indices.includes(indexEl.value) ? indexEl.value : chosen;
+  }
+
+  if (meta.min_month && meta.max_month) {
+    setGlobalBounds(meta.min_month, meta.max_month);
+    // If the current date is unset, default to dataset max.
+    if (!dateEl.value) dateEl.value = meta.max_month;
+    // Ensure slider is in sync.
+    syncGlobalSliderFromInput();
+  }
+}
 syncBootstrapDir();
 
 // ---------- Map (Leaflet) ----------
@@ -55,6 +113,25 @@ let mapAbortController = null;
 let panelAbortController = null;
 let lastChartRenderKey = null;
 let chartResizeBound = false;
+let appIsReady = false;
+
+// Global (map) month bounds for the currently selected dataset layer.
+let globalMinMonth = null;
+let globalMaxMonth = null;
+let globalMinInt = 0;
+let globalMaxInt = 0;
+
+// Panel (feature) month state (decoupled from global month).
+let stationMinInt = null;
+let stationMaxInt = null;
+let stationMonthInt = null;
+
+let searchQuery = '';
+
+// Cached panel series for the currently selected feature (used to update chart
+// markers when the global map month changes without reloading the whole panel).
+let currentPanelSeries = [];
+let currentPanelFeatureName = null;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_MAX = 180;
@@ -62,6 +139,7 @@ const mapDataCache = new Map();
 const panelKpiCache = new Map();
 const timeseriesCache = new Map();
 const derivedSeriesCache = new Map();
+const overviewCache = new Map();
 
 const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
@@ -69,7 +147,18 @@ const dateEl = document.getElementById('date');
 const panelEl = document.getElementById('insightPanel');
 const sidebarEl = document.getElementById('sidebar');
 const closeBtn = document.getElementById('closePanel');
-const monthStripEl = document.getElementById('monthStrip');
+// New unified date management:
+// - dateEl + globalSlider control the map month (global)
+// - stationSlider controls the selected feature month (panel)
+// They are decoupled to avoid short station spans locking the global selector.
+const globalSliderEl = document.getElementById('globalSlider');
+const globalMinLabelEl = document.getElementById('globalMinLabel');
+const globalMaxLabelEl = document.getElementById('globalMaxLabel');
+const stationSliderEl = document.getElementById('stationSlider');
+const stationRangeLabelEl = document.getElementById('stationRangeLabel');
+const stationMonthLabelEl = document.getElementById('stationMonthLabel');
+const syncToMapBtn = document.getElementById('syncToMap');
+const clearSearchBtn = document.getElementById('clearSearch');
 const valueBoxEl = document.getElementById('valueBox');
 const modalBackdropEl = document.getElementById('modalBackdrop');
 const panelSpinnerEl = document.getElementById('panelSpinner');
@@ -101,8 +190,7 @@ const timelineControls = [
   document.getElementById('date'),
   document.getElementById('nextMonth'),
   document.getElementById('toEnd'),
-  document.getElementById('stripPrev'),
-  document.getElementById('stripNext')
+  globalSliderEl
 ];
 
 const levelLabels = {
@@ -114,13 +202,18 @@ const levelLabels = {
   level3: 'حوزه درجه سه'
 };
 
+// Filled from GET /datasets. Used for UI labels (Persian-friendly) while still
+// keeping dataset keys stable in URLs.
+const datasetTitles = new Map();
+
 const droughtColors = {
   'D4': '#7f1d1d',
   'D3': '#dc2626',
   'D2': '#f97316',
   'D1': '#fbbf24',
   'D0': '#fde047',
-  'Normal/Wet': '#86efac'
+  'Normal/Wet': '#86efac',
+  'No Data': '#e5e7eb'
 };
 
 const DROUGHT_THRESHOLD_LINES = Object.freeze([
@@ -153,6 +246,31 @@ const severityLong = {
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
+
+// 3-class trend classification (must match backend rules)
+function classifyTrend(trend, alpha = 0.05) {
+  const slope = Number(trend?.sen_slope);
+  const p = Number(trend?.p_value);
+  const hasBackend = Boolean(trend?.trend_category);
+
+  if (hasBackend) {
+    const c = String(trend.trend_category);
+    if (c === 'inc') return { category: 'inc', symbol: '↑', labelEn: trend.trend_label_en, labelFa: trend.trend_label_fa, tone: 'pos' };
+    if (c === 'dec') return { category: 'dec', symbol: '↓', labelEn: trend.trend_label_en, labelFa: trend.trend_label_fa, tone: 'neg' };
+    return { category: 'none', symbol: '—', labelEn: trend.trend_label_en, labelFa: trend.trend_label_fa, tone: 'neu' };
+  }
+
+  if (!Number.isFinite(p) || p > alpha) {
+    return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'بدون روند معنی‌دار', tone: 'neu' };
+  }
+  if (Number.isFinite(slope) && slope > 0) {
+    return { category: 'inc', symbol: '↑', labelEn: 'Increasing Trend (Wetter)', labelFa: 'روند افزایشی (مرطوب‌تر)', tone: 'pos' };
+  }
+  if (Number.isFinite(slope) && slope < 0) {
+    return { category: 'dec', symbol: '↓', labelEn: 'Decreasing Trend (Drier)', labelFa: 'روند کاهشی (خشک‌تر)', tone: 'neg' };
+  }
+  return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'بدون روند معنی‌دار', tone: 'neu' };
+}
 
 function toPersianDigits(value) {
   return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
@@ -198,9 +316,21 @@ function toISODate(yyyymm) { return `${yyyymm}-01`; }
 
 function toChartMonthStart(yyyymm) { return `${yyyymm}-01`; }
 
-function toDisplayMonth(yyyymm) { return addMonth(yyyymm, 1); }
+// Month parsing helpers (no off-by-one conversions).
+function monthToInt(yyyymm) {
+  const [y, m] = String(yyyymm || '1970-01').split('-').map(Number);
+  return (y * 12) + (m - 1);
+}
 
-function fromDisplayMonth(yyyymm) { return addMonth(yyyymm, -1); }
+function intToMonth(n) {
+  const y = Math.floor(n / 12);
+  const m = (n % 12) + 1;
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+function clampInt(v, minV, maxV) {
+  return Math.min(Math.max(v, minV), maxV);
+}
 
 function formatChartDate(value) {
   const raw = String(value || '');
@@ -260,8 +390,9 @@ function classify(value) {
 function normalizeTimeseries(ts) {
   if (!Array.isArray(ts) || ts.length === 0) return [];
   return ts
-    .filter((d) => d && d.date && Number.isFinite(Number(d.value)))
-    .map((d) => ({ date: d.date, value: Number(d.value) }));
+    .filter((d) => d && d.date)
+    // Keep missing months as null so the x-axis spans the full feature range.
+    .map((d) => ({ date: d.date, value: (d.value == null ? null : Number(d.value)) }));
 }
 
 function getTrendLine(values) {
@@ -280,29 +411,7 @@ function getTrendLine(values) {
   return values.map((_, i) => intercept + slope * i);
 }
 
-function buildMonthStrip(centerMonth) {
-  monthStripEl.innerHTML = '';
-  const displayCenterMonth = toDisplayMonth(centerMonth);
-  const minDate = dateEl.min || null;
-  const maxDate = dateEl.max || null;
-  for (let i = -18; i <= 18; i += 1) {
-    const displayMonth = addMonth(displayCenterMonth, i);
-    const sourceMonth = fromDisplayMonth(displayMonth);
-    const { month, year } = toMonthLabel(displayMonth);
-    const btn = document.createElement('button');
-    const outOfRange = (minDate && sourceMonth < minDate) || (maxDate && sourceMonth > maxDate);
-    btn.className = `month-chip ${displayMonth === displayCenterMonth ? 'active' : ''}`;
-    btn.disabled = outOfRange;
-    btn.innerHTML = `${month}${(displayMonth.endsWith('-01') || displayMonth.endsWith('-07')) ? `<span class="year-tag">${toPersianDigits(year)}</span>` : ''}`;
-    btn.onclick = () => {
-      if (outOfRange) return;
-      lastPanelQueryKey = null;
-      dateEl.value = sourceMonth;
-      debouncedDateChanged();
-    };
-    monthStripEl.appendChild(btn);
-  }
-}
+// Month-strip UI was removed in favor of a global timeline slider.
 
 function setPanelOpen(open) {
   // On desktop, the panel is part of the layout; on mobile it's a drawer.
@@ -379,10 +488,11 @@ function applySeverityStyle(sev) {
   valueBoxEl.style.setProperty('--severity-color', c);
 }
 
-function renderKPI(kpi, featureName, indexLabel) {
+function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   const sev = kpi.severity || '-';
   document.getElementById('panelTitle').textContent = `${featureName}`;
-  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
+  const m = panelMonth || dateEl.value;
+  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
@@ -392,29 +502,28 @@ function renderKPI(kpi, featureName, indexLabel) {
   document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
   document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
 
-  // Trend status + note (professional style like reference)
-  const pRaw = kpi.trend?.p_value;
-  const pNum = (() => {
-    if (Number.isFinite(Number(pRaw))) return Number(pRaw);
-    const raw = String(pRaw ?? '').trim();
-    const match = raw.match(/(-?\d*\.?\d+)/);
-    return match ? Number(match[1]) : NaN;
-  })();
-
-  const significant = Number.isFinite(pNum) ? (pNum < 0.05) : false;
+  // Trend status + note (3-class, consistent across map/tooltips/panel)
+  const t = classifyTrend(kpi.trend, 0.05);
   const trendStatusEl = document.getElementById('trendStatus');
-  if (trendStatusEl) trendStatusEl.textContent = significant ? 'Significant Trend' : 'No Significant Trend';
+  if (trendStatusEl) {
+    trendStatusEl.textContent = `${t.symbol} ${t.labelFa}`;
+    trendStatusEl.classList.toggle('trend-pos', t.tone === 'pos');
+    trendStatusEl.classList.toggle('trend-neg', t.tone === 'neg');
+    trendStatusEl.classList.toggle('trend-neu', t.tone === 'neu');
+  }
 
   const trendNoteEl = document.getElementById('trendNote');
   if (trendNoteEl) {
+    const pNum = Number(kpi.trend?.p_value);
     if (!Number.isFinite(pNum)) trendNoteEl.textContent = '—';
-    else trendNoteEl.textContent = significant ? 'Statistically significant (p < 0.05)' : 'Not statistically significant (p ≥ 0.05)';
+    else trendNoteEl.textContent = `p = ${formatPValue(pNum)} • ${t.labelEn}`;
   }
 }
 
-function renderPanelLoading(featureName = 'ناحیه') {
+function renderPanelLoading(featureName = 'ناحیه', panelMonth = null) {
   document.getElementById('panelTitle').textContent = `${featureName}`;
-  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'))}`;
+  const m = panelMonth || dateEl.value;
+  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
   document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexEl.value)}`;
   document.getElementById('mainMetricValue').textContent = '...';
   document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
@@ -462,25 +571,57 @@ function setNoDataMessage(show, message = 'No data for this selection') {
   if (trendNoteEl) trendNoteEl.textContent = message;
 }
 
-function applyDateBounds(minDate, maxDate) {
-  if (!minDate || !maxDate) {
-    dateEl.removeAttribute('min');
-    dateEl.removeAttribute('max');
-    return false;
-  }
+function setGlobalBounds(minMonth, maxMonth) {
+  // Global bounds come from the dataset layer, NOT from the selected feature.
+  globalMinMonth = minMonth;
+  globalMaxMonth = maxMonth;
+  if (!minMonth || !maxMonth) return;
 
-  dateEl.min = minDate;
-  dateEl.max = maxDate;
+  dateEl.min = minMonth;
+  dateEl.max = maxMonth;
+  globalMinInt = monthToInt(minMonth);
+  globalMaxInt = monthToInt(maxMonth);
 
-  if (dateEl.value < minDate) {
-    dateEl.value = minDate;
-    return true;
+  // Clamp the current global month into bounds.
+  const cur = monthToInt(dateEl.value);
+  const clamped = clampInt(cur, globalMinInt, globalMaxInt);
+  dateEl.value = intToMonth(clamped);
+
+  if (globalMinLabelEl) globalMinLabelEl.textContent = toPersianDigits(String(minMonth).replace(/-/g, '/'));
+  if (globalMaxLabelEl) globalMaxLabelEl.textContent = toPersianDigits(String(maxMonth).replace(/-/g, '/'));
+
+  if (globalSliderEl) {
+    globalSliderEl.min = 0;
+    globalSliderEl.max = Math.max(0, globalMaxInt - globalMinInt);
+    globalSliderEl.value = String(monthToInt(dateEl.value) - globalMinInt);
+    paintRange(globalSliderEl);
   }
-  if (dateEl.value > maxDate) {
-    dateEl.value = maxDate;
-    return true;
-  }
-  return false;
+}
+
+function paintRange(rangeEl) {
+  // Modern slider fill (RTL-aware)
+  if (!rangeEl) return;
+  const min = Number(rangeEl.min || 0);
+  const max = Number(rangeEl.max || 100);
+  const val = Number(rangeEl.value || 0);
+  const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
+  const rtl = document.documentElement.getAttribute('dir') === 'rtl';
+  rangeEl.style.setProperty('--fill', `${pct}%`);
+  rangeEl.style.setProperty('--fill-dir', rtl ? 'to left' : 'to right');
+}
+
+function syncGlobalSliderFromInput() {
+  if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
+  globalSliderEl.value = String(monthToInt(dateEl.value) - globalMinInt);
+  paintRange(globalSliderEl);
+}
+
+function syncGlobalInputFromSlider() {
+  if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
+  const offset = Number(globalSliderEl.value || 0);
+  const m = intToMonth(globalMinInt + offset);
+  dateEl.value = m;
+  paintRange(globalSliderEl);
 }
 
 function getDateRangeFromTimeseries(ts) {
@@ -495,22 +636,31 @@ function getDateRangeFromTimeseries(ts) {
 }
 
 function calculateTrendLine(data) {
-  let sumX = 0;
-  let sumY = 0;
-  let sumXY = 0;
-  let sumXX = 0;
+  // Robust to missing values: fit a line using only finite points.
   const n = data.length;
   if (n < 2) return [...data];
 
+  const xs = [];
+  const ys = [];
   for (let i = 0; i < n; i += 1) {
-    sumX += i;
-    sumY += data[i][1];
-    sumXY += i * data[i][1];
-    sumXX += i * i;
+    const y = data[i][1];
+    if (Number.isFinite(y)) {
+      xs.push(i);
+      ys.push(y);
+    }
   }
+  if (xs.length < 2) return data.map((p) => [p[0], null]);
 
-  const slope = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
-  const intercept = (sumY - slope * sumX) / n;
+  const xMean = xs.reduce((a, b) => a + b, 0) / xs.length;
+  const yMean = ys.reduce((a, b) => a + b, 0) / ys.length;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < xs.length; i += 1) {
+    num += (xs[i] - xMean) * (ys[i] - yMean);
+    den += (xs[i] - xMean) ** 2;
+  }
+  const slope = den === 0 ? 0 : num / den;
+  const intercept = yMean - slope * xMean;
   return data.map((point, i) => [point[0], slope * i + intercept]);
 }
 
@@ -535,13 +685,17 @@ function getStartValueForLastYears(parsedData, years = 5) {
   return parsedData[idx][0];
 }
 
-function renderChart(ts, indexLabel) {
+function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
-  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${dateEl.value}|${ts.length}|${lastPoint}`;
+  const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${mapMonth}|${panelMonth}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
   if (!cachedDerived) {
-    const parsedData = ts.map((d) => [String(d.date).includes('T') ? d.date : `${d.date}T00:00:00Z`, Number(d.value)]);
+    const parsedData = ts.map((d) => {
+      const iso = String(d.date).includes('T') ? d.date : `${d.date}T00:00:00Z`;
+      const v = (d.value == null ? null : Number(d.value));
+      return [iso, Number.isFinite(v) ? v : null];
+    });
     cachedDerived = {
       parsedData,
       trendData: calculateTrendLine(parsedData)
@@ -550,7 +704,8 @@ function renderChart(ts, indexLabel) {
   }
 
   const { parsedData, trendData } = cachedDerived;
-  const selectedDate = toChartMonthStart(toDisplayMonth(dateEl.value));
+  const selectedDate = toChartMonthStart(mapMonth);
+  const panelDate = toChartMonthStart(panelMonth);
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -566,15 +721,15 @@ function renderChart(ts, indexLabel) {
   }
 
   const markLineData = [
-    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line }))
+    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })),
+    { xAxis: selectedDate, name: 'نقشه' },
+    { xAxis: panelDate, name: 'ناحیه' }
   ];
 
   const endValue = parsedData[parsedData.length - 1]?.[0];
   // Initial viewport: most recent year
   const startValue = getStartValueForLastYears(parsedData, 1) || parsedData[0]?.[0];
-  const timelineSeriesData = endValue
-    ? [[selectedDate, -3], [selectedDate, 2]]
-    : [];
+  // No separate timeline series; we use vertical markLines for both dates.
 
 
   const option = {
@@ -615,8 +770,8 @@ function renderChart(ts, indexLabel) {
         })();
 
         const visible = entries
-          // Hide helper series from tooltip (Trend + Timeline)
-          .filter((item) => !['Timeline', 'Trend'].includes(item?.seriesName))
+          // Hide helper series from tooltip (Trend)
+          .filter((item) => !['Trend'].includes(item?.seriesName))
           .map((item) => {
             const value = Array.isArray(item.value) ? item.value[1] : item.value;
             return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
@@ -754,17 +909,7 @@ function renderChart(ts, indexLabel) {
         lineStyle: { color: '#ef4444', width: 1.6, type: 'solid' },
         itemStyle: { color: '#ef4444' }
       },
-      {
-        name: 'Timeline',
-        type: 'line',
-        data: timelineSeriesData,
-        symbol: 'none',
-        tooltip: { show: false },
-        animation: false,
-        lineStyle: { color: '#2563eb', width: 1.8, type: 'dashed' },
-        itemStyle: { color: '#2563eb' },
-        z: 4
-      }
+      // Timeline markers are rendered via markLine.
     ]
   };
 
@@ -782,8 +927,8 @@ function formatIndexLabel(value) {
 }
 
 function updateSubtitles() {
-  const levelLabel = levelLabels[levelEl.value] || levelEl.value;
-  const dateLabel = toPersianDigits(toDisplayMonth(dateEl.value).replace(/-/g, '/'));
+  const levelLabel = (datasetTitles.get(levelEl.value) || levelLabels[levelEl.value] || levelEl.value);
+  const dateLabel = toPersianDigits(String(dateEl.value).replace(/-/g, '/'));
   const idxLabel = formatIndexLabel(indexEl.value);
   const text = `${idxLabel} • ${dateLabel} • سطح: ${levelLabel}`;
   if (mapSubtitleEl) mapSubtitleEl.textContent = text;
@@ -800,7 +945,7 @@ function ensureOverviewChart() {
   return overviewChart;
 }
 
-function renderOverview(features) {
+function renderOverviewFromCounts(payload) {
   updateSubtitles();
   const chartInstance = ensureOverviewChart();
   if (!chartInstance) return;
@@ -815,11 +960,7 @@ function renderOverview(features) {
     'D4': 'خشکسالی استثنایی'
   };
 
-  const counts = order.reduce((acc, k) => (acc[k] = 0, acc), {});
-  (features || []).forEach((f) => {
-    const s = f?.properties?.severity;
-    if (counts[s] != null) counts[s] += 1;
-  });
+  const counts = payload?.counts || {};
   const total = order.reduce((a, k) => a + (counts[k] || 0), 0);
 
   const data = order
@@ -865,8 +1006,10 @@ function renderOverview(features) {
   }, 0);
 
   if (overviewStatsEl) {
+    const missing = payload?.missing ?? 0;
     overviewStatsEl.innerHTML = total
-      ? order.map((k) => {
+      ? (`<div class="text-muted small mb-2">ایستگاه‌ها: ${toPersianDigits(payload?.with_value ?? total)} • دادهٔ ناموجود: ${toPersianDigits(missing)}</div>` +
+      order.map((k) => {
         const c = counts[k] || 0;
         const pct = total ? (c / total) * 100 : 0;
         const label = labelsFa[k] || k;
@@ -879,7 +1022,7 @@ function renderOverview(features) {
             <div>${toPersianDigits(c)} عدد --- ${toPersianDigits(pct.toFixed(1).replace('.', '٫'))}٪</div>
           </div>
         `;
-      }).join('')
+      }).join(''))
       : '<div class="text-muted small">برای این انتخاب داده‌ای در دسترس نیست.</div>';
   }
 }
@@ -896,7 +1039,8 @@ function addMapLegend() {
       ['D1', 'خشکسالی متوسط', '#fbbf24'],
       ['D2', 'خشکسالی شدید', '#f97316'],
       ['D3', 'خشکسالی بسیار شدید', '#dc2626'],
-      ['D4', 'خشکسالی استثنایی', '#7f1d1d']
+      ['D4', 'خشکسالی استثنایی', '#7f1d1d'],
+      ['—', 'بدون داده', '#e5e7eb']
     ];
     div.innerHTML = `
       <div class="head">
@@ -905,6 +1049,11 @@ function addMapLegend() {
       </div>
       <div class="legend-body">
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
+        <div class="legend-sep"></div>
+        <div class="legend-subtitle">راهنمای روند (کل دوره)</div>
+        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span class="label">روند افزایشی (مرطوب‌تر)</span></div>
+        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span class="label">روند کاهشی (خشک‌تر)</span></div>
+        <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">بدون روند معنی‌دار</span></div>
       </div>`;
 
     // Prevent map interactions while using the legend.
@@ -936,17 +1085,97 @@ function setHoverInfo(feature, indexName) {
   }
   const name = feature?.properties?.name || '—';
   const sev = feature?.properties?.severity || '—';
-  const value = feature?.properties?.value == null ? '—' : formatNumber(feature?.properties?.value);
+  const hasValue = feature?.properties?.has_value !== false && feature?.properties?.value != null;
+  const value = hasValue ? formatNumber(feature?.properties?.value) : '—';
+  const t = classifyTrend(feature?.properties?.trend, 0.05);
   hoverNameEl.textContent = name;
-  hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${severityLong[sev] || sev}`;
+  const sevText = (sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev);
+  hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${sevText} ••• ${t.symbol} ${t.labelFa}`;
   hoverBoxEl.classList.remove('is-hidden');
   hoverBoxEl.setAttribute('aria-hidden', 'false');
 }
 
+function applySearchFilter() {
+  if (!geoLayer) return;
+  const q = String(searchQuery || '').trim().toLowerCase();
+  geoLayer.eachLayer((layer) => {
+    const name = String(layer?.feature?.properties?.name || '').toLowerCase();
+    const hit = !q || name.includes(q);
+    layer._searchMatch = hit;
+
+    // Visually fade non-matching features.
+    if (layer.setStyle) {
+      const hv = layer?.feature?.properties?.has_value !== false;
+      const baseFill = hv ? 0.78 : 0.12;
+      const baseOp = hv ? 1 : 0.35;
+      layer.setStyle({
+        opacity: hit ? baseOp : 0.15,
+        fillOpacity: hit ? baseFill : 0.05
+      });
+    }
+
+    // Disable interaction for non-matching features.
+    const el = layer.getElement?.();
+    if (el) el.style.pointerEvents = hit ? 'auto' : 'none';
+  });
+}
+
+async function updatePanelForMonth(newMonth) {
+  if (!selectedFeature || stationMinInt == null || stationMaxInt == null) return;
+  const monthInt = clampInt(monthToInt(newMonth), stationMinInt, stationMaxInt);
+  stationMonthInt = monthInt;
+  const monthStr = intToMonth(monthInt);
+
+  if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+  paintRange(stationSliderEl);
+  if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(monthStr.replace(/-/g, '/'))}`;
+
+  const regionId = selectedFeature?.properties?.id;
+  const indexName = indexEl.value;
+  const levelName = levelEl.value;
+  const featureName = selectedFeature?.properties?.name || currentPanelFeatureName || 'ناحیه';
+
+  const reqId = ++panelRequestSeq;
+  if (panelAbortController) panelAbortController.abort();
+  panelAbortController = new AbortController();
+  togglePanelSpinner(true);
+  renderPanelLoading(featureName, monthStr);
+
+  const kpiKey = `${regionId}|${levelName}|${indexName}|${monthStr}`;
+  const kpi = await fetchCached(
+    panelKpiCache,
+    kpiKey,
+    () => `${API_BASE}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${monthStr}`,
+    { signal: panelAbortController.signal }
+  ).catch(() => ({ error: 'No series found' }));
+
+  if (reqId !== panelRequestSeq) return;
+
+  const effective = kpi?.effective_month || monthStr;
+  if (effective && /^\d{4}-\d{2}$/.test(effective)) {
+    stationMonthInt = clampInt(monthToInt(effective), stationMinInt, stationMaxInt);
+    if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+    paintRange(stationSliderEl);
+    if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effective.replace(/-/g, '/'))}`;
+  }
+
+  renderKPI(kpi, featureName, indexName, effective);
+  renderChart(currentPanelSeries, indexName, dateEl.value, effective);
+  togglePanelSpinner(false);
+}
+
 async function loadMap() {
+  if (!appIsReady) return;
   const level = levelEl.value;
   const index = indexEl.value;
   const date = dateEl.value;
+  const bounds = map.getBounds();
+  const bbox = [
+    bounds.getWest().toFixed(4),
+    bounds.getSouth().toFixed(4),
+    bounds.getEast().toFixed(4),
+    bounds.getNorth().toFixed(4)
+  ].join(',');
   const reqId = ++mapRequestSeq;
   if (mapAbortController) mapAbortController.abort();
   mapAbortController = new AbortController();
@@ -954,14 +1183,15 @@ async function loadMap() {
 
   let data = { type: 'FeatureCollection', features: [] };
   try {
-    const mapKey = `${level}|${index}|${date}`;
+    const mapKey = `${level}|${index}|${date}|${bbox}`;
     data = await fetchCached(
       mapDataCache,
       mapKey,
-      () => `${API_BASE}/mapdata?level=${level}&index=${index}&date=${date}`,
+      () => `${API_BASE}/mapdata?level=${level}&index=${index}&date=${date}&bbox=${encodeURIComponent(bbox)}`,
       { signal: mapAbortController.signal }
     );
-    preloadLikelyMapRequests(level, index, date);
+    // NOTE: we intentionally avoid prefetching when bbox-based loading is enabled.
+    // Adjacent-month prefetch can explode cache keys while the user is panning.
   } catch (_) {}
 
   if (reqId !== mapRequestSeq) { toggleMapLoading(false); return; }
@@ -973,9 +1203,9 @@ async function loadMap() {
   const defaultPolyStyle = (f) => ({
     color: '#334155',
     weight: 1,
-    opacity: 1,
-    fillOpacity: 0.78,
-    fillColor: severityColor(f?.properties?.severity)
+    opacity: (f?.properties?.has_value === false) ? 0.35 : 1,
+    fillOpacity: (f?.properties?.has_value === false) ? 0.12 : 0.78,
+    fillColor: (f?.properties?.has_value === false) ? '#e5e7eb' : severityColor(f?.properties?.severity)
   });
 
   const hoverPolyStyle = {
@@ -987,32 +1217,59 @@ async function loadMap() {
   geoLayer = L.geoJSON(data, {
     style: defaultPolyStyle,
     pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-      radius: 7,
+      radius: (feature?.properties?.has_value === false) ? 6 : 7,
       weight: 1.5,
       color: '#0f172a',
-      fillColor: severityColor(feature?.properties?.severity),
-      fillOpacity: 0.95
+      fillColor: (feature?.properties?.has_value === false) ? '#e5e7eb' : severityColor(feature?.properties?.severity),
+      fillOpacity: (feature?.properties?.has_value === false) ? 0.2 : 0.95
     }),
     onEachFeature: (feature, layer) => {
+      // Search mode: only matching features should respond to hover/click.
+      layer._searchMatch = true;
       layer.on('mouseover', () => {
+        if (searchQuery && !layer._searchMatch) return;
         if (layer.setStyle) layer.setStyle(hoverPolyStyle);
         if (layer.bringToFront) layer.bringToFront();
         setHoverInfo(feature, index);
       });
 
       layer.on('mouseout', () => {
+        if (searchQuery && !layer._searchMatch) return;
         if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
         setHoverInfo(null);
       });
 
-      layer.on('click', () => onRegionClick(feature));
+      layer.on('click', () => {
+        if (searchQuery && !layer._searchMatch) return;
+        onRegionClick(feature);
+      });
     }
   }).addTo(map);
 
-  if (data.features?.length) map.fitBounds(geoLayer.getBounds(), { padding: [20, 20] });
+  // Apply active search filter to the new layer.
+  applySearchFilter();
 
-  // Update overview chart + subtitles
-  renderOverview(latestMapFeatures);
+  // Do NOT auto-fit on each load. With bbox-driven loading this would trigger
+  // endless move events and repeated requests.
+}
+
+// Overview chart is computed server-side (no need to download all stations).
+async function loadOverview() {
+  if (!appIsReady) return;
+  const level = levelEl.value;
+  const idx = indexEl.value;
+  const date = dateEl.value;
+  const key = `${level}|${idx}|${date}`;
+  try {
+    const payload = await fetchCached(
+      overviewCache,
+      key,
+      () => `${API_BASE}/overview?level=${level}&index=${idx}&date=${date}`
+    );
+    renderOverviewFromCounts(payload);
+  } catch (_) {
+    // The map can still function even if overview fails.
+  }
 }
 
 async function onRegionClick(feature) {
@@ -1022,40 +1279,42 @@ async function onRegionClick(feature) {
     const indexName = indexEl.value;
     const levelName = levelEl.value;
     const featureName = feature?.properties?.name || 'ناحیه';
+    currentPanelFeatureName = featureName;
     setPanelOpen(true);
-    renderPanelLoading(featureName);
-    togglePanelSpinner(true);
-    setTimelineDisabled(false);
-    setNoDataMessage(false);
 
-    const queryKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
-    if (lastPanelQueryKey === queryKey && panelEl.classList.contains('open')) return;
-    lastPanelQueryKey = queryKey;
+    // Load time series first (we need per-feature min/max to configure panel slider).
+    togglePanelSpinner(true);
+    setNoDataMessage(false);
+    setTimelineDisabled(false);
 
     const reqId = ++panelRequestSeq;
     if (panelAbortController) panelAbortController.abort();
     panelAbortController = new AbortController();
-    let kpi = { error: 'No series found' }; let ts = []; let tsAll = [];
-    try {
-      const seriesKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
-      const seriesAllKey = `${regionId}|${levelName}|${indexName}|all`;
-      const kpiKey = `${regionId}|${levelName}|${indexName}|${dateEl.value}`;
-      [kpi, ts, tsAll] = await Promise.all([
-        fetchCached(panelKpiCache, kpiKey, () => `${API_BASE}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${dateEl.value}`, { signal: panelAbortController.signal }),
-        fetchCached(timeseriesCache, seriesAllKey, () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`, { signal: panelAbortController.signal })
-      ]);
-    } catch (_) {}
+
+    renderPanelLoading(featureName, stationMonthInt != null ? intToMonth(stationMonthInt) : dateEl.value);
+
+    const tsKey = `${regionId}|${levelName}|${indexName}|full`;
+    const tsPayload = await fetchCached(
+      timeseriesCache,
+      tsKey,
+      () => `${API_BASE}/timeseries?region_id=${regionId}&level=${levelName}&index=${indexName}`,
+      { signal: panelAbortController.signal }
+    ).catch(() => ({ min_month: null, max_month: null, data: [] }));
 
     if (reqId !== panelRequestSeq) return;
 
-    const normalizedSeries = normalizeTimeseries(ts);
-    const normalizedAllSeries = normalizeTimeseries(tsAll);
-    const rangeSeries = normalizedAllSeries.length ? normalizedAllSeries : normalizedSeries;
-    const { minDate, maxDate } = getDateRangeFromTimeseries(rangeSeries);
+    const minM = tsPayload?.min_month;
+    const maxM = tsPayload?.max_month;
+    const series = normalizeTimeseries(tsPayload?.data || []);
+    currentPanelSeries = series;
 
-    if (!rangeSeries.length) {
-      setTimelineDisabled(true);
+    if (!minM || !maxM || !series.length) {
+      stationMinInt = null;
+      stationMaxInt = null;
+      stationMonthInt = null;
+      if (stationSliderEl) stationSliderEl.disabled = true;
+      if (stationRangeLabelEl) stationRangeLabelEl.textContent = '—';
+      if (stationMonthLabelEl) stationMonthLabelEl.textContent = '—';
       renderKPI({
         latest: NaN,
         min: NaN,
@@ -1063,49 +1322,57 @@ async function onRegionClick(feature) {
         mean: NaN,
         severity: 'N/A',
         trend: { tau: NaN, p_value: '-', sen_slope: NaN, trend: '—' }
-      }, featureName, indexName);
+      }, featureName, indexName, null);
       setNoDataMessage(true, 'No data for this selection');
-      renderChart([], indexName);
+      renderChart([], indexName, dateEl.value, dateEl.value);
       togglePanelSpinner(false);
       return;
     }
 
-    setTimelineDisabled(false);
-    const dateAdjusted = applyDateBounds(minDate, maxDate);
-    buildMonthStrip(dateEl.value);
-    if (dateAdjusted) {
-      lastPanelQueryKey = null;
-      await onDateChanged();
-      return;
+    // Configure panel (feature) slider to the FULL available range.
+    stationMinInt = monthToInt(minM);
+    stationMaxInt = monthToInt(maxM);
+    const base = (stationMonthInt != null) ? stationMonthInt : monthToInt(dateEl.value);
+    stationMonthInt = clampInt(base, stationMinInt, stationMaxInt);
+
+    if (stationSliderEl) {
+      stationSliderEl.disabled = false;
+      stationSliderEl.min = 0;
+      stationSliderEl.max = Math.max(0, stationMaxInt - stationMinInt);
+      stationSliderEl.value = String(stationMonthInt - stationMinInt);
+      paintRange(stationSliderEl);
+    }
+    if (stationRangeLabelEl) {
+      stationRangeLabelEl.textContent = `${minM} → ${maxM}`;
     }
 
-    const latestVisiblePoint = normalizedSeries.length ? normalizedSeries[normalizedSeries.length - 1] : null;
-    const latestVisibleValue = Number(latestVisiblePoint?.value);
-    const val = Number(feature?.properties?.value);
-    const resolvedLatest = Number.isFinite(latestVisibleValue)
-      ? latestVisibleValue
-      : (Number.isFinite(val) ? val : NaN);
+    const panelMonth = intToMonth(stationMonthInt);
+    if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(panelMonth.replace(/-/g, '/'))}`;
 
-    const safeKpi = (kpi && typeof kpi === 'object' && !kpi.error)
-      ? kpi
-      : {
-        latest: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
-        min: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
-        max: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
-        mean: Number.isFinite(resolvedLatest) ? resolvedLatest : 0,
-        severity: feature?.properties?.severity || 'N/A',
-        trend: { tau: 0, p_value: '-', sen_slope: 0, trend: 'بدون روند' }
-      };
+    // KPI uses panel month (NOT global month). The backend auto-adjusts if missing.
+    const kpiKey = `${regionId}|${levelName}|${indexName}|${panelMonth}`;
+    const kpi = await fetchCached(
+      panelKpiCache,
+      kpiKey,
+      () => `${API_BASE}/kpi?region_id=${regionId}&level=${levelName}&index=${indexName}&date=${panelMonth}`,
+      { signal: panelAbortController.signal }
+    ).catch(() => ({ error: 'No series found' }));
 
-    if (Number.isFinite(resolvedLatest)) {
-      safeKpi.latest = resolvedLatest;
-      if (!safeKpi.severity || safeKpi.severity === 'N/A') {
-        safeKpi.severity = classify(resolvedLatest);
+    if (reqId !== panelRequestSeq) return;
+
+    // If backend adjusted the month (missing data), sync the panel slider.
+    const effectiveMonth = kpi?.effective_month || panelMonth;
+    if (effectiveMonth && /^\d{4}-\d{2}$/.test(effectiveMonth)) {
+      const effInt = monthToInt(effectiveMonth);
+      if (stationMinInt != null && stationMaxInt != null) {
+        stationMonthInt = clampInt(effInt, stationMinInt, stationMaxInt);
+        if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+        if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effectiveMonth.replace(/-/g, '/'))}`;
       }
     }
 
-    renderKPI(safeKpi, featureName, indexName);
-    renderChart(rangeSeries, indexName);
+    renderKPI(kpi, featureName, indexName, effectiveMonth);
+    renderChart(series, indexName, dateEl.value, effectiveMonth);
     togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);
@@ -1121,10 +1388,15 @@ function findSelectedFeatureFromCurrentMap() {
 }
 
 async function onDateChanged() {
-  buildMonthStrip(dateEl.value);
-  await loadMap();
-  if (panelEl.classList.contains('open') && selectedFeature) {
-    await onRegionClick(findSelectedFeatureFromCurrentMap());
+  syncGlobalSliderFromInput();
+  updateSubtitles();
+  await Promise.all([loadMap()]);
+
+  // Do NOT refetch the panel on global date changes.
+  // The panel has its own stationMonth (slider) and only needs the chart marker updated.
+  if (panelEl.classList.contains('open') && selectedFeature && currentPanelSeries.length) {
+    const panelMonth = stationMonthInt != null ? intToMonth(stationMonthInt) : dateEl.value;
+    renderChart(currentPanelSeries, indexEl.value, dateEl.value, panelMonth);
   }
 }
 
@@ -1144,57 +1416,93 @@ function setupEvents() {
     panelKpiCache.clear();
     timeseriesCache.clear();
     derivedSeriesCache.clear();
+    overviewCache.clear();
     lastChartRenderKey = null;
     onDateChanged();
   });
-  indexEl.addEventListener('change', async () => { lastPanelQueryKey = null; await onDateChanged(); });
-  levelEl.addEventListener('change', () => {
+  indexEl.addEventListener('change', async () => {
     lastPanelQueryKey = null;
-    dateEl.removeAttribute('min');
-    dateEl.removeAttribute('max');
-    setTimelineDisabled(false);
-    onDateChanged();
+    await onDateChanged();
+    // Index affects the panel series; reload it if open.
+    if (panelEl.classList.contains('open') && selectedFeature) {
+      await onRegionClick(findSelectedFeatureFromCurrentMap());
+    }
   });
-  dateEl.addEventListener('change', () => { lastPanelQueryKey = null; debouncedDateChanged(); });
+
+  levelEl.addEventListener('change', async () => {
+    lastPanelQueryKey = null;
+    // Switching dataset layer resets panel state but does NOT reload the page.
+    selectedFeature = null;
+    currentPanelSeries = [];
+    stationMinInt = null;
+    stationMaxInt = null;
+    stationMonthInt = null;
+    if (stationSliderEl) stationSliderEl.disabled = true;
+    setPanelOpen(false);
+    await loadMetaForSelectedDataset();
+    await onDateChanged();
+  });
+
+  dateEl.addEventListener('change', () => {
+    lastPanelQueryKey = null;
+    syncGlobalSliderFromInput();
+    debouncedDateChanged();
+  });
+
+  if (globalSliderEl) {
+    globalSliderEl.addEventListener('input', () => {
+      lastPanelQueryKey = null;
+      syncGlobalInputFromSlider();
+      debouncedDateChanged();
+    });
+  }
 
   document.getElementById('prevMonth').addEventListener('click', () => {
-    if (dateEl.min && dateEl.value <= dateEl.min) return;
+    if (globalMinMonth && dateEl.value <= globalMinMonth) return;
     lastPanelQueryKey = null;
     dateEl.value = addMonth(dateEl.value, -1);
+    syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('nextMonth').addEventListener('click', () => {
-    if (dateEl.max && dateEl.value >= dateEl.max) return;
+    if (globalMaxMonth && dateEl.value >= globalMaxMonth) return;
     lastPanelQueryKey = null;
     dateEl.value = addMonth(dateEl.value, 1);
+    syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('toStart').addEventListener('click', () => {
-    if (!currentRangeStart) return;
+    if (!globalMinMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = currentRangeStart;
+    dateEl.value = globalMinMonth;
+    syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('toEnd').addEventListener('click', () => {
-    if (!currentRangeEnd) return;
+    if (!globalMaxMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = currentRangeEnd;
+    dateEl.value = globalMaxMonth;
+    syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
 
-  // Fix timeline arrow behavior: shift date and refresh (not just scroll)
-  document.getElementById('stripPrev').addEventListener('click', () => {
-    if (dateEl.min && dateEl.value <= dateEl.min) return;
-    lastPanelQueryKey = null;
-    dateEl.value = addMonth(dateEl.value, -1);
-    debouncedDateChanged();
-  });
-  document.getElementById('stripNext').addEventListener('click', () => {
-    if (dateEl.max && dateEl.value >= dateEl.max) return;
-    lastPanelQueryKey = null;
-    dateEl.value = addMonth(dateEl.value, 1);
-    debouncedDateChanged();
-  });
+  // Feature (panel) month slider + sync button
+  if (stationSliderEl) {
+    stationSliderEl.addEventListener('input', () => {
+      if (stationMinInt == null) return;
+      paintRange(stationSliderEl);
+      const offset = Number(stationSliderEl.value || 0);
+      updatePanelForMonth(intToMonth(stationMinInt + offset));
+    });
+  }
+
+  if (syncToMapBtn) {
+    syncToMapBtn.addEventListener('click', () => {
+      if (stationMinInt == null || stationMaxInt == null) return;
+      const target = clampInt(monthToInt(dateEl.value), stationMinInt, stationMaxInt);
+      updatePanelForMonth(intToMonth(target));
+    });
+  }
 
   if (closeBtn) closeBtn.addEventListener('click', () => { lastPanelQueryKey = null; setPanelOpen(false); });
 
@@ -1238,14 +1546,21 @@ function setupEvents() {
     if (isMobileViewport() && state.panelOpen) { lastPanelQueryKey = null; setPanelOpen(false); return; }
   });
 
-  document.getElementById('search').addEventListener('input', (e) => {
-    if (!geoLayer) return;
-    const q = e.target.value.trim();
-    geoLayer.eachLayer((layer) => {
-      const hit = !q || layer.feature.properties.name.toLowerCase().includes(q.toLowerCase());
-      if (layer.setStyle) layer.setStyle({ opacity: hit ? 1 : .2, fillOpacity: hit ? .78 : .1 });
+  const searchEl = document.getElementById('search');
+  if (searchEl) {
+    searchEl.addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      applySearchFilter();
     });
-  });
+  }
+
+  if (clearSearchBtn) {
+    clearSearchBtn.addEventListener('click', () => {
+      searchQuery = '';
+      if (searchEl) searchEl.value = '';
+      applySearchFilter();
+    });
+  }
 
   // Basemap
   if (basemapEl) {
@@ -1262,6 +1577,13 @@ function setupEvents() {
       map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
     });
   }
+
+  // Lazy loading: fetch only stations inside the current viewport.
+  // Debounced to avoid firing during continuous panning.
+  const debouncedMove = debounce(() => {
+    loadMap();
+  }, 180);
+  map.on('moveend', debouncedMove);
 
   // Responsive housekeeping
   window.addEventListener('resize', () => {
@@ -1286,11 +1608,31 @@ function setupEvents() {
   });
 }
 
-populateIndexOptions();
-addMapLegend();
-setupEvents();
-updateHeaderHeightVar();
-updateSubtitles();
-buildMonthStrip(dateEl.value);
-loadMap();
+async function initApp() {
+  // Provide a fast local fallback if the backend endpoints aren't ready.
+  populateIndexOptions();
+  addMapLegend();
+  setupEvents();
+  updateHeaderHeightVar();
+
+  try {
+    await loadDatasetsList();
+    await loadMetaForSelectedDataset();
+  } catch (err) {
+    // Backend not ready or dataset not imported yet.
+    if (mapSubtitleEl) {
+      mapSubtitleEl.textContent = 'داده‌ای وارد نشده است. لطفاً import_data.py را اجرا کنید.';
+    }
+    // Fallback: at least have a "station" option so UI doesn't break.
+    if (!levelEl.options.length) {
+      levelEl.innerHTML = '<option value="station">ایستگاهی</option>';
+    }
+  }
+
+  updateSubtitles();
+  appIsReady = true;
+  await Promise.all([loadMap()]);
+}
+
+initApp();
 

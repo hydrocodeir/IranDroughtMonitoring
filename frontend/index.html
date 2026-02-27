@@ -57,7 +57,10 @@
             </div>
             <div class="ui-card__body">
               <label class="form-label" for="search">جستجوی ناحیه</label>
-              <input id="search" placeholder="مثلاً: تهران" class="form-control form-control-sm" />
+              <div class="search-row">
+                <input id="search" placeholder="مثلاً: تهران" class="form-control form-control-sm" />
+                <button id="clearSearch" class="btn btn-sm btn-outline-secondary" type="button" title="پاک کردن جستجو">پاک کردن</button>
+              </div>
               <div class="form-hint">در نتایج نقشه، نواحی نامرتبط کم‌رنگ می‌شوند.</div>
             </div>
           </section>
@@ -79,14 +82,7 @@
             </div>
             <div class="ui-card__body">
               <label class="form-label" for="level">انتخاب سطح</label>
-                <select id="level" class="form-select form-select-sm">
-                  <option value="station">ایستگاهی</option>
-                  <option value="province" disabled>استانی (بزودی)</option>
-                  <option value="county" disabled>شهرستانی (بزودی)</option>
-                  <option value="level1" disabled>حوزه درجه یک (بزودی)</option>
-                  <option value="level2" disabled>حوزه درجه دو (بزودی)</option>
-                  <option value="level3" disabled>حوزه درجه سه (بزودی)</option>
-                </select>
+                <select id="level" class="form-select form-select-sm"></select>
               <div class="form-hint">برای هر سطح، داده و مرزبندی مستقل نمایش داده می‌شود.</div>
             </div>
           </section>
@@ -156,15 +152,17 @@
                   <button id="toEnd" class="btn btn-sm btn-light" type="button" title="انتهای بازه">››</button>
                 </div>
                 <div class="timeline-right">
-                  <span class="small text-muted">انتخاب سریع</span>
+                  <span class="small text-muted">زمان سراسری (نقشه)</span>
                 </div>
               </div>
-            </div>
 
-            <div class="month-strip-shell">
-              <button id="stripPrev" class="strip-nav" type="button" title="ماه قبل">‹‹</button>
-              <div id="monthStrip" class="month-strip" aria-label="نوار ماه‌ها"></div>
-              <button id="stripNext" class="strip-nav" type="button" title="ماه بعد">››</button>
+              <div class="global-slider">
+                <input id="globalSlider" type="range" min="0" max="0" step="1" value="0" aria-label="نوار زمان سراسری" />
+                <div class="global-slider__labels">
+                  <span id="globalMinLabel" class="text-muted small">—</span>
+                  <span id="globalMaxLabel" class="text-muted small">—</span>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -196,6 +194,18 @@
                   <div class="chart-section__title">سری زمانی</div>
                 </div>
                 <div class="chart-wrap" aria-label="سری زمانی"><div id="tsChart"></div></div>
+
+                <div class="station-slider" aria-label="کنترل زمان ناحیه">
+                  <div class="station-slider__row">
+                    <span class="text-muted small">زمان ناحیه (پنل)</span>
+                    <span id="stationRangeLabel" class="text-muted small" dir="ltr">—</span>
+                  </div>
+                  <input id="stationSlider" type="range" min="0" max="0" step="1" value="0" disabled />
+                  <div class="station-slider__row">
+                    <span id="stationMonthLabel" class="small">—</span>
+                    <button id="syncToMap" class="btn btn-sm btn-light" type="button" title="همگام‌سازی با تاریخ نقشه">همگام‌سازی با نقشه</button>
+                  </div>
+                </div>
               </div>
 
               <section class="trend-section" aria-label="Trend Analysis">
@@ -220,18 +230,7 @@
             </div>
           </section>
 
-          <section class="ui-card">
-            <div class="ui-card__header">
-              <div>
-                <div class="ui-card__title">نمای کلی</div>
-                <div id="overviewSubtitle" class="ui-card__hint">—</div>
-              </div>
-            </div>
-            <div class="ui-card__body">
-              <div id="overviewChart" class="chart-sm" aria-label="نمودار نمای کلی"></div>
-              <div id="overviewStats" class="overview-stats" aria-label="آمار نمای کلی"></div>
-            </div>
-          </section>
+          <!-- Overview section removed (per requirements). -->
         </div>
       </aside>
     </div>

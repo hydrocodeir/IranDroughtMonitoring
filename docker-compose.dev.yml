@@ -37,6 +37,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data
+      - ./import_data.py:/app/import_data.py
     ports: ["8000:8000"]
     depends_on:
       db:
@@ -59,6 +60,7 @@ services:
     volumes:
       - ./backend:/app/backend
       - ./data:/app/data
+      - ./import_data.py:/app/import_data.py
     depends_on:
       db:
         condition: service_healthy

@@ -17,6 +17,7 @@ RUN uv venv /opt/venv \
 
 COPY backend /app/backend
 COPY data /app/data
+COPY import_data.py /app/import_data.py
 
 RUN useradd -m -u 10001 appuser \
     && chown -R appuser:appuser /app /opt/venv
