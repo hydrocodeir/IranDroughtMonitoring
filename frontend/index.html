@@ -151,11 +151,11 @@
             <div class="ui-card__body">
               <div class="timeline-row">
                 <div class="timeline-left">
-                  <button id="toStart" class="btn btn-sm btn-light" type="button" title="ابتدای بازه">‹‹</button>
-                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="ماه قبل">‹</button>
+                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="انتهای بازه (افزایش تاریخ)">››</button>
+                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="ماه بعد (افزایش تاریخ)">›</button>
                   <input id="date" type="month" class="form-control form-control-sm timeline-date" value="2020-01" />
-                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="ماه بعد">›</button>
-                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="انتهای بازه">››</button>
+                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="ماه قبل (کاهش تاریخ)">‹</button>
+                  <button id="toStart" class="btn btn-sm btn-light" type="button" title="ابتدای بازه (کاهش تاریخ)">‹‹</button>
                 </div>
                 <div class="timeline-right">
                   <span class="small text-muted"><i class="bi bi-calendar-range"></i> زمان سراسری (نقشه)</span>
@@ -189,7 +189,10 @@
             <div class="ui-card__body">
               <section id="valueBox" class="value-box">
                 <div class="value-box__row">
-                  <span id="mainMetricLabel"></span>
+                  <span class="metric-label-group">
+                    <span id="mainMetricLabel"></span>
+                    <button id="metricInfoBtn" class="metric-info" type="button" aria-label="راهنمای شاخص" data-tip="این مقدار مربوط به شاخص انتخاب‌شده (مثلاً SPEI-3) در ماه انتخابی نقشه است.">❗</button>
+                  </span>
                   <span id="severityBadge" class="severity-badge">-</span>
                 </div>
                 <div class="main-value" id="mainMetricValue">روی یک ناحیه کلیک کنید!</div>

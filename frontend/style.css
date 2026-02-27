@@ -225,7 +225,7 @@ input[type="range"] {
   --thumb: #ffffff;
   --thumb-border: #cbd5e1;
   --fill: 0%;
-  --fill-dir: to left;
+  --fill-dir: to right;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -277,6 +277,7 @@ input[type="range"]:disabled {
   display: flex;
   justify-content: space-between;
   margin-top: 0.25rem;
+  direction: ltr;
 }
 
 .station-slider {
@@ -654,6 +655,47 @@ input[type="range"]:disabled {
   color: var(--severity-color, #a16207);
   font-weight: 700;
   font-size: 0.9rem;
+}
+
+.metric-label-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-info {
+  border: 0;
+  background: transparent;
+  color: #f97316;
+  font-weight: 800;
+  line-height: 1;
+  position: relative;
+  padding: 0;
+}
+
+.metric-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  inset-inline-start: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 280px;
+  background: #111827;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  z-index: 3;
+}
+
+.metric-info:hover::after,
+.metric-info:focus-visible::after {
+  opacity: 1;
 }
 
 .severity-badge {

@@ -493,7 +493,8 @@ function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   document.getElementById('panelTitle').textContent = `${featureName}`;
   const m = panelMonth || dateEl.value;
   document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
+  const metricLabelEl = document.getElementById('mainMetricLabel');
+  if (metricLabelEl) metricLabelEl.textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
   document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
   applySeverityStyle(sev);
@@ -524,7 +525,8 @@ function renderPanelLoading(featureName = 'ناحیه', panelMonth = null) {
   document.getElementById('panelTitle').textContent = `${featureName}`;
   const m = panelMonth || dateEl.value;
   document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
-  document.getElementById('mainMetricLabel').textContent = `مقدار ${formatIndexLabel(indexEl.value)}`;
+  const metricLabelEl = document.getElementById('mainMetricLabel');
+  if (metricLabelEl) metricLabelEl.textContent = `مقدار ${formatIndexLabel(indexEl.value)}`;
   document.getElementById('mainMetricValue').textContent = '...';
   document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
   const trendStatusEl = document.getElementById('trendStatus');
@@ -572,22 +574,16 @@ function setNoDataMessage(show, message = 'No data for this selection') {
 }
 
 
-function isRtl() {
-  return document.documentElement.getAttribute('dir') === 'rtl';
-}
-
 function sliderUiFromOffset(rangeEl, offset) {
   const min = Number(rangeEl?.min || 0);
   const max = Number(rangeEl?.max || 0);
-  const safe = clampInt(Number(offset || 0), min, max);
-  return isRtl() ? (max - safe) : safe;
+  return clampInt(Number(offset || 0), min, max);
 }
 
 function sliderOffsetFromUi(rangeEl) {
   const min = Number(rangeEl?.min || 0);
   const max = Number(rangeEl?.max || 0);
-  const ui = clampInt(Number(rangeEl?.value || 0), min, max);
-  return isRtl() ? (max - ui) : ui;
+  return clampInt(Number(rangeEl?.value || 0), min, max);
 }
 
 function setGlobalBounds(minMonth, maxMonth) {
@@ -624,9 +620,8 @@ function paintRange(rangeEl) {
   const max = Number(rangeEl.max || 100);
   const val = Number(rangeEl.value || 0);
   const pct = max > min ? ((val - min) / (max - min)) * 100 : 0;
-  const rtl = document.documentElement.getAttribute('dir') === 'rtl';
   rangeEl.style.setProperty('--fill', `${pct}%`);
-  rangeEl.style.setProperty('--fill-dir', rtl ? 'to left' : 'to right');
+  rangeEl.style.setProperty('--fill-dir', 'to right');
 }
 
 function syncGlobalSliderFromInput() {
@@ -1267,6 +1262,14 @@ async function loadMap() {
 
   // Apply active search filter to the new layer.
   applySearchFilter();
+
+  // Initial default selection: choose one feature on first page load.
+  if (!selectedFeature && latestMapFeatures.length) {
+    const defaultFeature = latestMapFeatures.find((f) => f?.properties?.has_value !== false) || latestMapFeatures[0];
+    if (defaultFeature) {
+      await onRegionClick(defaultFeature);
+    }
+  }
 
   // Do NOT auto-fit on each load. With bbox-driven loading this would trigger
   // endless move events and repeated requests.
