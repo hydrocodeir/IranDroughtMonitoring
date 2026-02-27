@@ -1091,3 +1091,63 @@ input[type="range"]:disabled {
   .chart-wrap { height: 320px; }
   .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+
+.tiny-font {
+  font-size: smaller !important;
+}
+
+.xx-small-font {
+  font-size:xx-small !important;
+}
+
+
+
+.app-header{
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center; /* متن وسط */
+  min-height: 64px;        /* قابل تنظیم */
+  padding: 10px 16px;
+  direction: rtl;
+}
+
+/* لوگو سمت راست */
+.header-logo{
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.header-logo img{
+  height: 60px;   /* اندازه لوگو */
+  width: auto;
+  display: block;
+}
+
+/* دکمه‌ها سمت چپ */
+.header-actions{
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap; /* اگر فضا کم شد */
+}
+
+/* متن وسط واقعاً وسط بماند و با لوگو/دکمه‌ها تداخل نکند */
+.brand{
+  text-align: center;
+  max-width: 70%;
+}
+
+
+@media (max-width: 576px){
+  .brand__title{ display:none; }
+}
