@@ -56,6 +56,7 @@ import sys
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str((ROOT / "backend").resolve()))
 from app.database import engine  # noqa: E402
+from app.datasets_store import get_available_indices, precompute_trend_stats  # noqa: E402
 
 
 DATASET_KEY_RE = re.compile(r"^[a-zA-Z0-9_]+$")
@@ -419,6 +420,18 @@ def finalize_bounds(dataset_key: str) -> None:
         )
 
 
+
+
+def precompute_dataset_trends(dataset_key: str) -> None:
+    """Precompute full-history trends right after import for zero first-click delay."""
+    indices = get_available_indices(dataset_key)
+    if not indices:
+        print(f"[{dataset_key}] no index columns found for trend precompute")
+        return
+    for idx in indices:
+        count = precompute_trend_stats(dataset_key=dataset_key, index=idx)
+        print(f"[{dataset_key}] precomputed trends for {idx}: {count:,} features")
+
 def import_one_dataset(dataset_key: str, folder: Path, replace: bool, chunksize: int) -> None:
     csv_path = folder / "data.csv"
     geo_path = folder / "geoinfo.geojson"
@@ -488,6 +501,9 @@ def import_one_dataset(dataset_key: str, folder: Path, replace: bool, chunksize:
     with engine.begin() as conn:
         conn.execute(text("ANALYZE features"))
         conn.execute(text(f"ANALYZE ts_{dataset_key}"))
+
+    print(f"[{dataset_key}] precomputing trends for all indices...")
+    precompute_dataset_trends(dataset_key)
 
 
 def main() -> None:

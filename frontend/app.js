@@ -571,6 +571,25 @@ function setNoDataMessage(show, message = 'No data for this selection') {
   if (trendNoteEl) trendNoteEl.textContent = message;
 }
 
+
+function isRtl() {
+  return document.documentElement.getAttribute('dir') === 'rtl';
+}
+
+function sliderUiFromOffset(rangeEl, offset) {
+  const min = Number(rangeEl?.min || 0);
+  const max = Number(rangeEl?.max || 0);
+  const safe = clampInt(Number(offset || 0), min, max);
+  return isRtl() ? (max - safe) : safe;
+}
+
+function sliderOffsetFromUi(rangeEl) {
+  const min = Number(rangeEl?.min || 0);
+  const max = Number(rangeEl?.max || 0);
+  const ui = clampInt(Number(rangeEl?.value || 0), min, max);
+  return isRtl() ? (max - ui) : ui;
+}
+
 function setGlobalBounds(minMonth, maxMonth) {
   // Global bounds come from the dataset layer, NOT from the selected feature.
   globalMinMonth = minMonth;
@@ -593,7 +612,7 @@ function setGlobalBounds(minMonth, maxMonth) {
   if (globalSliderEl) {
     globalSliderEl.min = 0;
     globalSliderEl.max = Math.max(0, globalMaxInt - globalMinInt);
-    globalSliderEl.value = String(monthToInt(dateEl.value) - globalMinInt);
+    globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(dateEl.value) - globalMinInt));
     paintRange(globalSliderEl);
   }
 }
@@ -612,13 +631,13 @@ function paintRange(rangeEl) {
 
 function syncGlobalSliderFromInput() {
   if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
-  globalSliderEl.value = String(monthToInt(dateEl.value) - globalMinInt);
+  globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(dateEl.value) - globalMinInt));
   paintRange(globalSliderEl);
 }
 
 function syncGlobalInputFromSlider() {
   if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
-  const offset = Number(globalSliderEl.value || 0);
+  const offset = sliderOffsetFromUi(globalSliderEl);
   const m = intToMonth(globalMinInt + offset);
   dateEl.value = m;
   paintRange(globalSliderEl);
@@ -1126,7 +1145,7 @@ async function updatePanelForMonth(newMonth) {
   stationMonthInt = monthInt;
   const monthStr = intToMonth(monthInt);
 
-  if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+  if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
   paintRange(stationSliderEl);
   if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(monthStr.replace(/-/g, '/'))}`;
 
@@ -1154,7 +1173,7 @@ async function updatePanelForMonth(newMonth) {
   const effective = kpi?.effective_month || monthStr;
   if (effective && /^\d{4}-\d{2}$/.test(effective)) {
     stationMonthInt = clampInt(monthToInt(effective), stationMinInt, stationMaxInt);
-    if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+    if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
     paintRange(stationSliderEl);
     if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effective.replace(/-/g, '/'))}`;
   }
@@ -1339,7 +1358,7 @@ async function onRegionClick(feature) {
       stationSliderEl.disabled = false;
       stationSliderEl.min = 0;
       stationSliderEl.max = Math.max(0, stationMaxInt - stationMinInt);
-      stationSliderEl.value = String(stationMonthInt - stationMinInt);
+      stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
       paintRange(stationSliderEl);
     }
     if (stationRangeLabelEl) {
@@ -1366,7 +1385,7 @@ async function onRegionClick(feature) {
       const effInt = monthToInt(effectiveMonth);
       if (stationMinInt != null && stationMaxInt != null) {
         stationMonthInt = clampInt(effInt, stationMinInt, stationMaxInt);
-        if (stationSliderEl) stationSliderEl.value = String(stationMonthInt - stationMinInt);
+        if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
         if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effectiveMonth.replace(/-/g, '/'))}`;
       }
     }
@@ -1491,7 +1510,7 @@ function setupEvents() {
     stationSliderEl.addEventListener('input', () => {
       if (stationMinInt == null) return;
       paintRange(stationSliderEl);
-      const offset = Number(stationSliderEl.value || 0);
+      const offset = sliderOffsetFromUi(stationSliderEl);
       updatePanelForMonth(intToMonth(stationMinInt + offset));
     });
   }
@@ -1561,6 +1580,27 @@ function setupEvents() {
       applySearchFilter();
     });
   }
+
+  const indexHelpBtn = document.getElementById('indexHelpBtn');
+  const trendHelpBtn = document.getElementById('trendHelpBtn');
+  const indexHelpPanel = document.getElementById('indexHelpPanel');
+  const trendHelpPanel = document.getElementById('trendHelpPanel');
+
+  function toggleHelp(panelEl) {
+    if (!panelEl) return;
+    panelEl.classList.toggle('d-none');
+  }
+
+  if (indexHelpBtn) indexHelpBtn.addEventListener('click', () => toggleHelp(indexHelpPanel));
+  if (trendHelpBtn) trendHelpBtn.addEventListener('click', () => toggleHelp(trendHelpPanel));
+
+  document.querySelectorAll('[data-close-help]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-close-help');
+      const panel = id ? document.getElementById(id) : null;
+      if (panel) panel.classList.add('d-none');
+    });
+  });
 
   // Basemap
   if (basemapEl) {

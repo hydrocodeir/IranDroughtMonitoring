@@ -67,6 +67,19 @@ python import_data.py --replace
 
 ---
 
+
+### Trend precomputation (zero-delay first click)
+
+Trends are now stored in a persistent table and can be precomputed independently:
+
+```bash
+python backend/scripts/precompute_trends.py
+# optional
+python backend/scripts/precompute_trends.py --level station --index spi3
+```
+
+The importer automatically runs trend precomputation after each dataset import so map and panel trends are ready immediately.
+
 ## 3) Run
 
 ### Development (hot reload)
