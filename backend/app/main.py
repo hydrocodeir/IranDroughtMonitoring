@@ -19,6 +19,7 @@ from .datasets_store import (
     fetch_values_up_to,
     fetch_feature_name,
     fetch_trend_stats_all,
+    fetch_precomputed_trend,
 )
 
 app = FastAPI(title="Iran Drought Monitoring API")
@@ -246,10 +247,12 @@ async def get_kpi(region_id: str, level: str = "station", index: str = "spi3", d
         if not values:
             return {"error": "No series found", "feature": fetch_feature_name(level, region_id)}
 
-        # Critical: trend statistics must be computed ONCE from the FULL historical series
-        # and must remain fixed regardless of the selected date range.
-        full_values = fetch_values_up_to(dataset_key=level, feature_id=region_id, index=index, end_date=None)
-        trend = mann_kendall_and_sen(full_values)
+        # Critical: trend statistics are precomputed from full history and kept stable,
+        # independent from date slider changes.
+        trend = fetch_precomputed_trend(dataset_key=level, index=index, feature_id=region_id)
+        if trend is None:
+            full_values = fetch_values_up_to(dataset_key=level, feature_id=region_id, index=index, end_date=None)
+            trend = mann_kendall_and_sen(full_values)
         latest_val = values[-1]
         return {
             "feature": fetch_feature_name(level, region_id),

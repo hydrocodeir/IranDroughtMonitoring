@@ -125,6 +125,64 @@ body {
   margin-top: 2px;
 }
 
+.ui-card__title,
+.chart-section__title,
+.trend-head__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-card__title i,
+.chart-section__title i,
+.trend-head__title i {
+  color: var(--brand);
+}
+
+.help-icon {
+  border: 0;
+  background: transparent;
+  color: #f97316;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.help-panel {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #334155;
+  position: relative;
+}
+
+.help-panel h6 {
+  color: #ea580c;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.help-panel p {
+  margin: 0;
+  line-height: 1.7;
+}
+
+.help-panel__close {
+  position: absolute;
+  inset-inline-end: 8px;
+  inset-block-start: 8px;
+  border: 0;
+  background: transparent;
+  color: #64748b;
+}
+
+.global-slider input[type="range"],
+.station-slider input[type="range"] {
+  direction: ltr;
+}
+
 .ui-card__body {
   padding: var(--space-3);
 }
@@ -167,7 +225,7 @@ input[type="range"] {
   --thumb: #ffffff;
   --thumb-border: #cbd5e1;
   --fill: 0%;
-  --fill-dir: to left;
+  --fill-dir: to right;
 }
 
 input[type="range"]::-webkit-slider-runnable-track {
@@ -219,6 +277,7 @@ input[type="range"]:disabled {
   display: flex;
   justify-content: space-between;
   margin-top: 0.25rem;
+  direction: ltr;
 }
 
 .station-slider {
@@ -596,6 +655,47 @@ input[type="range"]:disabled {
   color: var(--severity-color, #a16207);
   font-weight: 700;
   font-size: 0.9rem;
+}
+
+.metric-label-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-info {
+  border: 0;
+  background: transparent;
+  color: #f97316;
+  font-weight: 800;
+  line-height: 1;
+  position: relative;
+  padding: 0;
+}
+
+.metric-info::after {
+  content: attr(data-tip);
+  position: absolute;
+  inset-inline-start: 50%;
+  bottom: calc(100% + 8px);
+  transform: translateX(-50%);
+  min-width: 220px;
+  max-width: 280px;
+  background: #111827;
+  color: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.16s ease;
+  z-index: 3;
+}
+
+.metric-info:hover::after,
+.metric-info:focus-visible::after {
+  opacity: 1;
 }
 
 .severity-badge {
