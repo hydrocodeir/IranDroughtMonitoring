@@ -49,6 +49,28 @@ body {
   font-family: "Vazirmatn", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
 }
 
+.skip-link {
+  position: absolute;
+  inset-inline-start: 12px;
+  inset-block-start: -52px;
+  z-index: 2500;
+  background: #0f172a;
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 12px;
+  text-decoration: none;
+  transition: inset-block-start 0.2s ease;
+}
+
+.skip-link:focus-visible {
+  inset-block-start: 12px;
+}
+
+:focus-visible {
+  outline: 3px solid #3b82f6;
+  outline-offset: 2px;
+}
+
 /* ---------- Shell layout ---------- */
 
 .app-shell {
@@ -89,6 +111,10 @@ body {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.header-actions .btn {
+  white-space: nowrap;
 }
 
 .app-body {
@@ -1305,5 +1331,16 @@ input[type="range"]:disabled {
 @media (max-width: 576px) {
   .brand__title {
     display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
