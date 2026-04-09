@@ -1,4 +1,5 @@
 const API_BASE = window.API_BASE_URL || "http://localhost:8000";
+// const API_BASE = "http://localhost:8000";
 
 // Keep Bootstrap direction consistent with document direction.
 // Default is LTR, but RTL remains supported when <html dir="rtl">.
@@ -50,11 +51,17 @@ async function loadMetaForSelectedDataset() {
 
   // Populate indices based on the imported CSV header for this dataset.
   if (Array.isArray(meta.indices) && meta.indices.length) {
-    indexEl.innerHTML = meta.indices.map((idx) => {
+    indexEl.textContent = '';
+    const fragment = document.createDocumentFragment();
+    meta.indices.forEach((idx) => {
       const m = String(idx).match(/^(spi|spei)(\d+)$/i);
       const label = m ? `${m[1].toUpperCase()}-${m[2]}` : String(idx).toUpperCase();
-      return `<option value="${idx}">${label}</option>`;
-    }).join('');
+      const option = document.createElement('option');
+      option.value = String(idx);
+      option.textContent = label;
+      fragment.appendChild(option);
+    });
+    indexEl.appendChild(fragment);
 
     const preferred = ['spi3', 'spei3', meta.indices[0]];
     const chosen = preferred.find((v) => meta.indices.includes(v)) || meta.indices[0];
@@ -227,12 +234,20 @@ const DROUGHT_THRESHOLD_LINES = Object.freeze([
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
-  const options = [];
-  for (const window of windows) {
-    options.push({ value: `spi${window}`, label: `SPI-${window}` });
-    options.push({ value: `spei${window}`, label: `SPEI-${window}` });
+  indexEl.textContent = '';
+  const fragment = document.createDocumentFragment();
+  for (const monthWindow of windows) {
+    const spiOption = document.createElement('option');
+    spiOption.value = `spi${monthWindow}`;
+    spiOption.textContent = `SPI-${monthWindow}`;
+    fragment.appendChild(spiOption);
+
+    const speiOption = document.createElement('option');
+    speiOption.value = `spei${monthWindow}`;
+    speiOption.textContent = `SPEI-${monthWindow}`;
+    fragment.appendChild(speiOption);
   }
-  indexEl.innerHTML = options.map((opt) => `<option value="${opt.value}">${opt.label}</option>`).join('');
+  indexEl.appendChild(fragment);
   indexEl.value = 'spi3';
 }
 
@@ -418,6 +433,9 @@ function setPanelOpen(open) {
   state.panelOpen = Boolean(open);
   panelEl.classList.toggle('open', state.panelOpen);
   panelEl.setAttribute('aria-hidden', String(isMobileViewport() ? !state.panelOpen : false));
+  if (togglePanelBtn) {
+    togglePanelBtn.setAttribute('aria-expanded', String(state.panelOpen));
+  }
   updateBackdrop();
 
    // Ensure charts reflow correctly after drawer transition.
@@ -449,6 +467,9 @@ function setSidebarOpen(open) {
   state.sidebarOpen = Boolean(open);
   sidebarEl.classList.toggle('open', state.sidebarOpen);
   sidebarEl.setAttribute('aria-hidden', String(isMobileViewport() ? !state.sidebarOpen : false));
+  if (toggleSidebarBtn) {
+    toggleSidebarBtn.setAttribute('aria-expanded', String(state.sidebarOpen));
+  }
   updateBackdrop();
 }
 
@@ -541,11 +562,14 @@ function renderPanelLoading(featureName = 'ناحیه', panelMonth = null) {
 function togglePanelSpinner(show) {
   if (!panelSpinnerEl) return;
   panelSpinnerEl.classList.toggle('d-none', !show);
+  panelEl?.setAttribute('aria-busy', String(Boolean(show)));
 }
 
 function toggleMapLoading(show) {
   if (!mapLoadingEl) return;
   mapLoadingEl.classList.toggle('show', show);
+  const mapEl = document.getElementById('map');
+  mapEl?.setAttribute('aria-busy', String(Boolean(show)));
 }
 
 function preloadLikelyMapRequests(level, index, baseMonth) {
@@ -566,9 +590,14 @@ function setTimelineDisabled(disabled) {
 }
 
 function setNoDataMessage(show, message = 'No data for this selection') {
-  if (!show) return;
   const trendStatusEl = document.getElementById('trendStatus');
   const trendNoteEl = document.getElementById('trendNote');
+  if (!show) {
+    if (trendNoteEl?.dataset?.defaultText) {
+      trendNoteEl.textContent = trendNoteEl.dataset.defaultText;
+    }
+    return;
+  }
   if (trendStatusEl) trendStatusEl.textContent = '—';
   if (trendNoteEl) trendNoteEl.textContent = message;
 }
@@ -1432,6 +1461,11 @@ const debouncedDateChanged = debounce(() => {
 }, 120);
 
 function setupEvents() {
+  const trendNoteEl = document.getElementById('trendNote');
+  if (trendNoteEl && !trendNoteEl.dataset.defaultText) {
+    trendNoteEl.dataset.defaultText = trendNoteEl.textContent || '—';
+  }
+
   document.getElementById('reloadTop').addEventListener('click', () => {
     lastPanelQueryKey = null;
     mapDataCache.clear();
@@ -1569,10 +1603,11 @@ function setupEvents() {
   });
 
   const searchEl = document.getElementById('search');
+  const applySearchFilterDebounced = debounce(applySearchFilter, 120);
   if (searchEl) {
     searchEl.addEventListener('input', (e) => {
       searchQuery = e.target.value.trim();
-      applySearchFilter();
+      applySearchFilterDebounced();
     });
   }
 
@@ -1678,4 +1713,3 @@ async function initApp() {
 }
 
 initApp();
-
