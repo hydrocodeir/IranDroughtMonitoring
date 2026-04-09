@@ -179,6 +179,10 @@ const overviewStatsEl = document.getElementById('overviewStats');
 const hoverBoxEl = document.getElementById('mapHover');
 const hoverNameEl = document.getElementById('hoverName');
 const hoverMetaEl = document.getElementById('hoverMeta');
+const hoverValueEl = document.getElementById('hoverValue');
+const hoverSeverityEl = document.getElementById('hoverSeverity');
+const hoverTrendEl = document.getElementById('hoverTrend');
+const hoverMonthEl = document.getElementById('hoverMonth');
 
 const basemapEl = document.getElementById('basemap');
 const resetViewBtn = document.getElementById('resetView');
@@ -1134,7 +1138,21 @@ function setHoverInfo(feature, indexName) {
   const t = classifyTrend(feature?.properties?.trend, 0.05);
   hoverNameEl.textContent = name;
   const sevText = (sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev);
-  hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${sevText} ••• ${t.symbol} ${t.labelFa}`;
+  const hoverMonth = toMonthLabel(currentGlobalMonth || dateEl?.value || '1970-01');
+
+  // Progressive enhancement:
+  // - New UI: populate dedicated fields.
+  // - Old UI fallback: keep single-line hover meta so hover always works.
+  if (hoverValueEl && hoverSeverityEl && hoverTrendEl && hoverMonthEl) {
+    hoverValueEl.textContent = `${formatIndexLabel(indexName)}: ${value}`;
+    hoverSeverityEl.textContent = sevText;
+    hoverSeverityEl.className = `hover-severity severity-${String(sev || '').toLowerCase().replace('/', '-').replace(/\s+/g, '-')}`;
+    hoverTrendEl.textContent = `${t.symbol} ${t.labelFa}`;
+    hoverMonthEl.textContent = `${hoverMonth.month} ${toPersianDigits(hoverMonth.year)}`;
+    hoverMetaEl.textContent = `Sen's slope: ${formatNumber(feature?.properties?.trend?.sen_slope, 4)} | p-value: ${formatPValue(feature?.properties?.trend?.p_value)}`;
+  } else {
+    hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${sevText} ••• ${t.symbol} ${t.labelFa}`;
+  }
   hoverBoxEl.classList.remove('is-hidden');
   hoverBoxEl.setAttribute('aria-hidden', 'false');
 }
