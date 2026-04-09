@@ -1,3 +1,4 @@
+import math
 import pymannkendall as mk
 
 
@@ -27,7 +28,9 @@ def mann_kendall_and_sen(values):
             "trend": "no trend",
         }
 
-    result = mk.original_test(values)
+    # Apply variance correction for serial autocorrelation based on
+    # Hamed & Rao (1998) modified Mann-Kendall test.
+    result = mk.hamed_rao_modification_test(values)
     out = {
         "tau": float(result.Tau),
         "p_value": float(result.p),
@@ -45,6 +48,8 @@ def classify_trend(sen_slope: float | None, p_value: float | None, *, alpha: flo
 
     slope = float(sen_slope) if sen_slope is not None else 0.0
     p = float(p_value) if p_value is not None else 1.0
+    if not math.isfinite(p):
+        p = 1.0
 
     if p > alpha:
         return {
