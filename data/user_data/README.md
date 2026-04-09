@@ -1,11 +1,28 @@
-# User data drop-in folders
+# (Deprecated) user_data folders
 
-Place your real files here:
+Older versions of this project read CSV/GeoJSON files directly at runtime.
+That design caused severe performance issues on large datasets.
 
-- `data/user_data/point/geoinfo.geojson`
-- `data/user_data/point/data.csv`
-- `data/user_data/polygon/geoinfo.geojson`
-- `data/user_data/polygon/data.csv`
+✅ The current version **does not** read from `data/user_data/*` while running.
 
-If files do not exist in a folder, dashboard returns empty data for that type.
-No synthetic fallback data is generated.
+Use the new import flow:
+
+1) Place your files (import-only):
+
+Single dataset (imports as `station`):
+
+- `data/import/data.csv`
+- `data/import/geoinfo.geojson`
+
+Or multiple datasets:
+
+- `data/import/<dataset_key>/data.csv`
+- `data/import/<dataset_key>/geoinfo.geojson`
+
+2) Run the one-time import:
+
+```bash
+python import_data.py --replace
+```
+
+After import, the dashboard loads everything from the PostGIS database.

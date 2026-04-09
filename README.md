@@ -94,6 +94,75 @@ make dev
 make prod
 ```
 
+This imports as dataset key: `station`.
+
+### Option B — Multiple datasets (recommended)
+
+Create one folder per spatial layer:
+
+```
+data/import/station/data.csv
+data/import/station/geoinfo.geojson
+
+data/import/province/data.csv
+data/import/province/geoinfo.geojson
+
+data/import/county/data.csv
+data/import/county/geoinfo.geojson
+```
+
+Each folder name becomes a selectable dataset layer in the UI.
+
+---
+
+## 2) One-time import
+
+### Option A — Docker (recommended)
+
+```bash
+make dev
+# wait until PostGIS is healthy, then in another terminal:
+docker compose -f docker-compose.dev.yml exec backend python /app/import_data.py --replace
+```
+
+### Option B — Local Python (advanced)
+
+Run the import script locally if you have a running PostgreSQL+PostGIS instance.
+
+```bash
+export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/drought"
+python import_data.py --replace
+```
+
+---
+
+
+### Trend precomputation (zero-delay first click)
+
+Trends are now stored in a persistent table and can be precomputed independently:
+
+```bash
+python backend/scripts/precompute_trends.py
+# optional
+python backend/scripts/precompute_trends.py --level station --index spi3
+```
+
+The importer automatically runs trend precomputation after each dataset import so map and panel trends are ready immediately.
+
+## 3) Run
+
+### Development (hot reload)
+
+```bash
+make dev
+```
+
+### Production
+
+```bash
+make prod
+```
+
 ### In Production Convert:
 const API_BASE = "http://localhost:8000" to const API_BASE = window.API_BASE_URL || "http://localhost:8000";
 
