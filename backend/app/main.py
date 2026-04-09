@@ -26,7 +26,10 @@ app = FastAPI(title="Iran Drought Monitoring API")
 
 origins = [
     "http://localhost:8080",
-    "http://drought.werifum.ir"
+    "http://127.0.0.1:8080",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://drought.werifum.ir",
 ]
 
 # GZip helps when map responses grow (GeoJSON can be large).
