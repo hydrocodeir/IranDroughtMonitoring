@@ -1,5 +1,5 @@
-// const API_BASE = window.API_BASE_URL || "http://localhost:8000";
-const API_BASE = "http://localhost:8000";
+const API_BASE = window.API_BASE_URL || "http://localhost:8000";
+// const API_BASE = "http://localhost:8000";
 
 // Keep Bootstrap direction consistent with document direction.
 // Default is LTR, but RTL remains supported when <html dir="rtl">.

@@ -1,4 +1,4 @@
-FROM docker.iranserver.com/python:3.11-slim
+FROM python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -9,11 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PIP_DEFAULT_TIMEOUT=300 \
     PIP_RETRIES=10 \
     UV_HTTP_TIMEOUT=300
-RUN pip install -i https://mirror-pypi.runflare.com/simple --no-cache-dir uv
+RUN pip install --no-cache-dir uv
 COPY backend/requirements.txt /app/requirements.txt
 RUN uv venv /opt/venv \
     && . /opt/venv/bin/activate \
-    && uv pip install -i https://mirror-pypi.runflare.com/simple -r /app/requirements.txt
+    && uv pip install -r /app/requirements.txt
 
 COPY backend /app/backend
 COPY data /app/data
