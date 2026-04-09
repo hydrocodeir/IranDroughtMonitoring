@@ -178,7 +178,11 @@ const overviewSubtitleEl = document.getElementById('overviewSubtitle');
 const overviewStatsEl = document.getElementById('overviewStats');
 const hoverBoxEl = document.getElementById('mapHover');
 const hoverNameEl = document.getElementById('hoverName');
-const hoverMetaEl = document.getElementById('hoverMeta');
+
+const hoverIndexEl = document.getElementById('hoverIndex');
+const hoverValueEl = document.getElementById('hoverValue');
+const hoverSeverityEl = document.getElementById('hoverSeverity');
+const hoverTrendEl = document.getElementById('hoverTrend');
 
 const basemapEl = document.getElementById('basemap');
 const resetViewBtn = document.getElementById('resetView');
@@ -1121,7 +1125,7 @@ function addMapLegend() {
 }
 
 function setHoverInfo(feature, indexName) {
-  if (!hoverBoxEl || !hoverNameEl || !hoverMetaEl) return;
+  if (!hoverBoxEl || !hoverNameEl) return;
   if (!feature) {
     hoverBoxEl.classList.add('is-hidden');
     hoverBoxEl.setAttribute('aria-hidden', 'true');
@@ -1134,7 +1138,12 @@ function setHoverInfo(feature, indexName) {
   const t = classifyTrend(feature?.properties?.trend, 0.05);
   hoverNameEl.textContent = name;
   const sevText = (sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev);
-  hoverMetaEl.textContent = `${formatIndexLabel(indexName)}: ${value} ••• ${sevText} ••• ${t.symbol} ${t.labelFa}`;
+  
+  hoverIndexEl.textContent = `${formatIndexLabel(indexName)}`;
+  hoverValueEl.textContent = value;
+  hoverSeverityEl.textContent = hasValue ? sevText : '—';
+  hoverTrendEl.textContent = hasValue ? `${t.symbol} ${t.labelFa}` : '—';
+  
   hoverBoxEl.classList.remove('is-hidden');
   hoverBoxEl.setAttribute('aria-hidden', 'false');
 }
