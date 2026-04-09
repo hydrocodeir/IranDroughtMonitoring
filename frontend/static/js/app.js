@@ -165,6 +165,7 @@ const stationSliderEl = document.getElementById('stationSlider');
 const stationRangeLabelEl = document.getElementById('stationRangeLabel');
 const stationMonthLabelEl = document.getElementById('stationMonthLabel');
 const syncToMapBtn = document.getElementById('syncToMap');
+const syncToPanelBtn = document.getElementById('syncToPanel');
 const clearSearchBtn = document.getElementById('clearSearch');
 const valueBoxEl = document.getElementById('valueBox');
 const modalBackdropEl = document.getElementById('modalBackdrop');
@@ -1171,7 +1172,7 @@ async function updatePanelForMonth(newMonth) {
 
   if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
   paintRange(stationSliderEl);
-  if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(monthStr.replace(/-/g, '/'))}`;
+  if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(monthStr.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = monthStr; }
 
   const regionId = selectedFeature?.properties?.id;
   const indexName = indexEl.value;
@@ -1199,7 +1200,7 @@ async function updatePanelForMonth(newMonth) {
     stationMonthInt = clampInt(monthToInt(effective), stationMinInt, stationMaxInt);
     if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
     paintRange(stationSliderEl);
-    if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effective.replace(/-/g, '/'))}`;
+    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effective.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = effective; }
   }
 
   renderKPI(kpi, featureName, indexName, effective);
@@ -1365,7 +1366,7 @@ async function onRegionClick(feature) {
       stationMonthInt = null;
       if (stationSliderEl) stationSliderEl.disabled = true;
       if (stationRangeLabelEl) stationRangeLabelEl.textContent = '—';
-      if (stationMonthLabelEl) stationMonthLabelEl.textContent = '—';
+      if (stationMonthLabelEl) { stationMonthLabelEl.textContent = '—'; delete stationMonthLabelEl.dataset.month; }
       renderKPI({
         latest: NaN,
         min: NaN,
@@ -1398,7 +1399,7 @@ async function onRegionClick(feature) {
     }
 
     const panelMonth = intToMonth(stationMonthInt);
-    if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(panelMonth.replace(/-/g, '/'))}`;
+    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(panelMonth.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = panelMonth; }
 
     // KPI uses panel month (NOT global month). The backend auto-adjusts if missing.
     const kpiKey = `${regionId}|${levelName}|${indexName}|${panelMonth}`;
@@ -1418,7 +1419,7 @@ async function onRegionClick(feature) {
       if (stationMinInt != null && stationMaxInt != null) {
         stationMonthInt = clampInt(effInt, stationMinInt, stationMaxInt);
         if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
-        if (stationMonthLabelEl) stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effectiveMonth.replace(/-/g, '/'))}`;
+        if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effectiveMonth.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = effectiveMonth; }
       }
     }
 
@@ -1557,6 +1558,17 @@ function setupEvents() {
       if (stationMinInt == null || stationMaxInt == null) return;
       const target = clampInt(monthToInt(dateEl.value), stationMinInt, stationMaxInt);
       updatePanelForMonth(intToMonth(target));
+    });
+  }
+
+  if (syncToPanelBtn) {
+    syncToPanelBtn.addEventListener('click', () => {
+      const panelMonth = stationMonthLabelEl?.dataset?.month;
+      if (!panelMonth) return;
+      dateEl.value = panelMonth;
+      lastPanelQueryKey = null;
+      syncGlobalSliderFromInput();
+      debouncedDateChanged();
     });
   }
 
