@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM docker.iranserver.com/python:3.11-slim
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -6,14 +6,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Use uv-managed virtual environment instead of raw pip installs
-RUN pip install --no-cache-dir uv
+ENV PIP_DEFAULT_TIMEOUT=300 \
+    PIP_RETRIES=10 \
+    UV_HTTP_TIMEOUT=300
+RUN pip install -i https://mirror-pypi.runflare.com/simple --no-cache-dir uv
 COPY backend/requirements.txt /app/requirements.txt
 RUN uv venv /opt/venv \
     && . /opt/venv/bin/activate \
-    && uv pip install --no-cache -r /app/requirements.txt
+    && uv pip install -i https://mirror-pypi.runflare.com/simple -r /app/requirements.txt
 
 COPY backend /app/backend
 COPY data /app/data
+COPY import_data.py /app/import_data.py
 
 RUN useradd -m -u 10001 appuser \
     && chown -R appuser:appuser /app /opt/venv
