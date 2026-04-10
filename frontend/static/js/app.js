@@ -296,6 +296,14 @@ function classifyTrend(trend, alpha = 0.05) {
   return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'بدون روند معنی‌دار', tone: 'neu' };
 }
 
+function trendLabelForIndex(indexName, trend) {
+  const t = classifyTrend(trend, 0.05);
+  if (isDroughtIndex(indexName)) return t;
+  if (t.category === 'inc') return { ...t, labelEn: 'Increasing Trend', labelFa: 'روند افزایشی' };
+  if (t.category === 'dec') return { ...t, labelEn: 'Decreasing Trend', labelFa: 'روند کاهشی' };
+  return t;
+}
+
 function toPersianDigits(value) {
   return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
 }
@@ -535,7 +543,7 @@ function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   document.getElementById('senVal').textContent = formatNumber(kpi.trend?.sen_slope);
 
   // Trend status + note (3-class, consistent across map/tooltips/panel)
-  const t = classifyTrend(kpi.trend, 0.05);
+  const t = trendLabelForIndex(indexLabel, kpi.trend);
   const trendStatusEl = document.getElementById('trendStatus');
   if (trendStatusEl) {
     trendStatusEl.textContent = `${t.symbol} ${t.labelFa}`;
@@ -894,13 +902,13 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       seriesIndex: 0,
       inRange: droughtMode ? undefined : { color: ['#93c5fd', '#2563eb'] },
       pieces: [
-        { min: 0, color: '#a2e8c6' },
+        { min: 0, color: droughtColors['Normal/Wet'] },
         { min: -0.5, max: 0, color: '#c7eed8' },
-        { min: -0.8, max: -0.5, color: '#ffea75' },
-        { min: -1.3, max: -0.8, color: '#ffc859' },
-        { min: -1.6, max: -1.3, color: '#ff9843' },
-        { min: -2.0, max: -1.6, color: '#e73838' },
-        { max: -2.0, color: '#8b0000' }
+        { min: -0.8, max: -0.5, color: droughtColors['D0'] },
+        { min: -1.3, max: -0.8, color: droughtColors['D1'] },
+        { min: -1.6, max: -1.3, color: droughtColors['D2'] },
+        { min: -2.0, max: -1.6, color: droughtColors['D3'] },
+        { max: -2.0, color: droughtColors['D4'] }
       ]
     },
     dataZoom: [
@@ -936,7 +944,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
     series: [
       {
         name: formatIndexLabel(indexLabel),
-        type: 'line',
+        type: barClimateMode ? 'bar' : 'line',
         data: parsedData,
         symbol: 'none',
         lineStyle: { width: 2 },
@@ -1140,8 +1148,8 @@ function addMapLegend() {
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
         <div class="legend-sep"></div>
         <div class="legend-subtitle">راهنمای روند (کل دوره)</div>
-        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span class="label">روند افزایشی (مرطوب‌تر)</span></div>
-        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span class="label">روند کاهشی (خشک‌تر)</span></div>
+        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">روند افزایشی (مرطوب‌تر)</span></div>
+        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">روند کاهشی (خشک‌تر)</span></div>
         <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">بدون روند معنی‌دار</span></div>
       </div>`;
 
@@ -1176,7 +1184,7 @@ function setHoverInfo(feature, indexName) {
   const sev = feature?.properties?.severity || '—';
   const hasValue = feature?.properties?.has_value !== false && feature?.properties?.value != null;
   const value = hasValue ? formatNumber(feature?.properties?.value) : '—';
-  const t = classifyTrend(feature?.properties?.trend, 0.05);
+  const t = trendLabelForIndex(indexName, feature?.properties?.trend);
   hoverNameEl.textContent = name;
   const droughtMode = isDroughtIndex(indexName);
   const sevText = droughtMode
@@ -1190,6 +1198,22 @@ function setHoverInfo(feature, indexName) {
   
   hoverBoxEl.classList.remove('is-hidden');
   hoverBoxEl.setAttribute('aria-hidden', 'false');
+}
+
+function computeClimateValueRange(features) {
+  const vals = (features || [])
+    .map((f) => Number(f?.properties?.value))
+    .filter((v) => Number.isFinite(v));
+  if (!vals.length) return null;
+  return { min: Math.min(...vals), max: Math.max(...vals) };
+}
+
+function climatePointRadius(value, range) {
+  if (!Number.isFinite(value) || !range) return 6;
+  const span = range.max - range.min;
+  if (!Number.isFinite(span) || span <= 0) return 8;
+  const t = Math.max(0, Math.min(1, (value - range.min) / span));
+  return 4 + (t * 10);
 }
 
 function applySearchFilter() {
@@ -1295,6 +1319,7 @@ async function loadMap() {
 
   toggleMapLoading(false);
   latestMapFeatures = data.features || [];
+  const climateRange = isDroughtIndex(index) ? null : computeClimateValueRange(latestMapFeatures);
   if (geoLayer) map.removeLayer(geoLayer);
 
   const defaultPolyStyle = (f) => ({
@@ -1314,7 +1339,11 @@ async function loadMap() {
   geoLayer = L.geoJSON(data, {
     style: defaultPolyStyle,
     pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-      radius: (feature?.properties?.has_value === false) ? 6 : 7,
+      radius: (feature?.properties?.has_value === false)
+        ? 6
+        : (isDroughtIndex(index)
+          ? 7
+          : climatePointRadius(Number(feature?.properties?.value), climateRange)),
       weight: 1.5,
       color: '#0f172a',
       fillColor: (feature?.properties?.has_value === false) ? '#e5e7eb' : severityColor(feature?.properties?.severity),
