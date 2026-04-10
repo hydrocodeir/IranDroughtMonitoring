@@ -1009,8 +1009,8 @@ function updateSubtitles() {
   const legendTitle = document.getElementById('legendTitle');
   if (legendTitle) {
     legendTitle.textContent = isDroughtIndex(indexEl.value)
-      ? `راهنمای شدت خشکسالی • ${idxLabel}`
-      : `راهنمای متغیر اقلیمی • ${idxLabel}`;
+      ? `راهنمای شدت خشکسالی`
+      : `راهنمای شدت خشکسالی`;
   }
   const trendIncLabel = document.getElementById('legendTrendInc');
   const trendDecLabel = document.getElementById('legendTrendDec');
