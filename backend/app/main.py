@@ -1,19 +1,22 @@
 from datetime import date, datetime
 from html import escape
+import logging
 from typing import Any, Callable
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.responses import HTMLResponse
 
-from .cache import get_or_set_cache
+from .cache import clear_cache, get_or_set_cache
 from .datasets_store import (
     fetch_feature_name,
     fetch_features_geojson,
     fetch_meta,
     fetch_overview_counts,
+    fetch_regions,
     fetch_precomputed_trend,
     fetch_timeseries_full,
     fetch_trend_stats_all,
@@ -21,17 +24,15 @@ from .datasets_store import (
     find_effective_month_for_value,
     list_datasets,
 )
+from .settings import settings
 from .utils import drought_class, mann_kendall_and_sen
 
-app = FastAPI(title="Iran Drought Monitoring API")
+logging.basicConfig(level=getattr(logging, settings.log_level.upper(), logging.INFO))
+logger = logging.getLogger(__name__)
 
-origins = [
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://drought.werifum.ir",
-]
+app = FastAPI(title=settings.app_name)
+
+origins = settings.cors_origins_list
 
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
@@ -47,10 +48,14 @@ DATASET_UNAVAILABLE_DETAIL = (
 )
 
 
+def api_error(status_code: int, code: str, message: str) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message})
+
+
 # ---------- Shared helpers ----------
 
 def dataset_unavailable_http_exc() -> HTTPException:
-    return HTTPException(status_code=503, detail=DATASET_UNAVAILABLE_DETAIL)
+    return api_error(503, "dataset_unavailable", DATASET_UNAVAILABLE_DETAIL)
 
 
 async def run_cached(key: str, builder: Callable[[], Any], ttl_seconds: int) -> Any:
@@ -114,26 +119,7 @@ def enrich_map_features_with_drought_and_trend(
 
 
 def empty_regions_or_meta(level: str) -> list[dict[str, str]]:
-    meta = fetch_meta(level)
-    if not meta.get("indices") or not meta.get("max_month"):
-        return []
-
-    data = fetch_features_geojson(
-        dataset_key=level,
-        index=meta["indices"][0],
-        yyyymm=meta["max_month"],
-        bbox=None,
-        limit=200000,
-        offset=0,
-    )
-    return [
-        {
-            "id": feature["properties"]["id"],
-            "name": feature["properties"]["name"],
-            "level": level,
-        }
-        for feature in data.get("features", [])
-    ]
+    return fetch_regions(dataset_key=level)
 
 
 # ---------- Endpoints ----------
@@ -141,7 +127,33 @@ def empty_regions_or_meta(level: str) -> list[dict[str, str]]:
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "cache": "redis+memory", "storage": "postgis"}
+    return {"status": "ok", "cache": "redis+memory", "storage": "postgis", "env": settings.app_env}
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict) and "code" in detail and "message" in detail:
+        payload = detail
+    else:
+        payload = {"code": f"http_{exc.status_code}", "message": str(detail)}
+    payload["path"] = request.url.path
+    return JSONResponse(status_code=exc.status_code, content={"error": payload})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled API error", extra={"path": request.url.path})
+    return JSONResponse(
+        status_code=500,
+        content={"error": {"code": "internal_error", "message": "Internal server error", "path": request.url.path}},
+    )
+
+
+@app.post("/admin/cache/invalidate")
+async def invalidate_cache(prefix: str | None = Query(default="api:")):
+    deleted = await run_in_threadpool(clear_cache, prefix)
+    return {"status": "ok", "deleted": deleted, "prefix": prefix}
 
 
 @app.get("/meta")
@@ -157,19 +169,18 @@ async def datasets():
     try:
         return await run_in_threadpool(list_datasets)
     except Exception as exc:
-        raise HTTPException(
-            status_code=503,
-            detail="Dataset registry not available. Run: python import_data.py --replace",
-        ) from exc
+        raise api_error(503, "dataset_registry_unavailable", "Dataset registry not available. Run: python import_data.py --replace") from exc
 
 
 @app.get("/regions")
 async def get_regions(level: str = Query("station")):
-    key = f"regions:{level}"
+    key = f"api:regions:{level}"
     try:
-        return await run_cached(key, lambda: empty_regions_or_meta(level), 1800)
-    except Exception:
-        return []
+        return await run_cached(key, lambda: empty_regions_or_meta(level), settings.cache_ttl_long_seconds)
+    except ValueError as exc:
+        raise api_error(400, "invalid_request", str(exc)) from exc
+    except Exception as exc:
+        raise dataset_unavailable_http_exc() from exc
 
 
 @app.get("/mapdata")
@@ -178,11 +189,12 @@ async def get_mapdata(
     date: str = "2020-01",
     index: str = "spi3",
     bbox: str | None = None,
-    limit: int = 2000,
+    limit: int = settings.map_limit_default,
     offset: int = 0,
 ):
     bbox_key = rounded_bbox_key(bbox)
-    key = f"map:{level}:{index}:{date}:{bbox_key}:{limit}:{offset}"
+    limit = max(1, min(limit, settings.map_limit_max))
+    key = f"api:map:{level}:{index}:{date}:{bbox_key}:{limit}:{offset}"
 
     def _builder():
         feature_collection = fetch_features_geojson(
@@ -197,7 +209,7 @@ async def get_mapdata(
         trends = get_or_set_cache(
             trend_cache_key,
             lambda: fetch_trend_stats_all(dataset_key=level, index=index),
-            24 * 3600,
+            settings.cache_ttl_daily_seconds,
         )
         enrich_map_features_with_drought_and_trend(
             feature_collection.get("features", []),
@@ -207,24 +219,24 @@ async def get_mapdata(
         return feature_collection
 
     try:
-        return await run_cached(key, _builder, 300)
+        return await run_cached(key, _builder, settings.cache_ttl_short_seconds)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(400, "invalid_request", str(exc)) from exc
     except Exception as exc:
         raise dataset_unavailable_http_exc() from exc
 
 
 @app.get("/overview")
 async def overview(level: str = "station", index: str = "spi3", date: str = "2020-01"):
-    key = f"overview:{level}:{index}:{date}"
+    key = f"api:overview:{level}:{index}:{date}"
     try:
         return await run_cached(
             key,
             lambda: fetch_overview_counts(dataset_key=level, index=index, yyyymm=date),
-            300,
+            settings.cache_ttl_short_seconds,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(400, "invalid_request", str(exc)) from exc
     except Exception as exc:
         raise dataset_unavailable_http_exc() from exc
 
@@ -241,22 +253,22 @@ async def get_timeseries(
     # start/end/date intentionally kept for backward compatibility.
     _ = (start, end, date)
 
-    key = f"ts:{level}:{index}:{region_id}:full"
+    key = f"api:ts:{level}:{index}:{region_id}:full"
     try:
         return await run_cached(
             key,
             lambda: fetch_timeseries_full(dataset_key=level, feature_id=region_id, index=index),
-            900,
+            settings.cache_ttl_medium_seconds,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(400, "invalid_request", str(exc)) from exc
     except Exception as exc:
         raise dataset_unavailable_http_exc() from exc
 
 
 @app.get("/kpi")
 async def get_kpi(region_id: str, level: str = "station", index: str = "spi3", date: str | None = None):
-    key = f"kpi:{level}:{index}:{region_id}:{date or 'auto'}"
+    key = f"api:kpi:{level}:{index}:{region_id}:{date or 'auto'}"
 
     def _builder():
         requested = parse_month(date)
@@ -273,7 +285,7 @@ async def get_kpi(region_id: str, level: str = "station", index: str = "spi3", d
 
         values = fetch_values_up_to(dataset_key=level, feature_id=region_id, index=index, end_date=effective_month)
         if not values:
-            return {"error": "No series found", "feature": fetch_feature_name(level, region_id)}
+            return {"error": {"code": "no_series", "message": "No series found"}, "feature": fetch_feature_name(level, region_id)}
 
         trend = fetch_precomputed_trend(dataset_key=level, index=index, feature_id=region_id)
         if trend is None:
@@ -295,9 +307,9 @@ async def get_kpi(region_id: str, level: str = "station", index: str = "spi3", d
         }
 
     try:
-        return await run_cached(key, _builder, 600)
+        return await run_cached(key, _builder, settings.cache_ttl_medium_seconds)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise api_error(400, "invalid_request", str(exc)) from exc
     except Exception as exc:
         raise dataset_unavailable_http_exc() from exc
 

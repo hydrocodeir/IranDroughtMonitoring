@@ -1,262 +1,83 @@
 # Iran Drought Monitoring Dashboard (FastAPI + Leaflet)
 
-This project was redesigned to **eliminate runtime CSV/GeoJSON loading**.
+This project serves drought map + trend analytics from **PostGIS**, with Redis/in-memory caching and a static frontend.
 
-✅ The dashboard **never** reads `data.csv` or `geoinfo.geojson` while serving requests.
+## Production hardening highlights (April 2026)
 
-Instead, there is a **one-time import step** that ingests the files into a **PostGIS** database (with spatial indexing), enabling:
+- Config moved to environment-backed settings (`backend/app/settings.py`) for CORS, map limits, and cache TTLs.
+- API errors standardized to `{ "error": { "code", "message", "path" } }` with explicit HTTP handlers.
+- `/regions` optimized to query only feature id/name (no geometry loading).
+- Import pipeline now clears app caches and metadata caches after ingest.
+- Frontend now protects overview requests from staleness/overlap using abort + sequence guards.
+- Better frontend error visibility for map/overview loading failures.
 
-- fast map startup (no expensive pandas/GeoJSON parsing)
-- server-side filtering (bounding-box queries)
-- date-range time-series queries
-- pagination / lazy loading
-- caching (Redis + in-memory fallback)
+## Architecture
 
----
+- **Backend**: FastAPI + SQLAlchemy.
+- **Data**: PostGIS tables (`datasets`, `features`, and per-layer `ts_<dataset_key>`).
+- **Cache**: Redis first, in-memory fallback.
+- **Frontend**: Leaflet map + ECharts panel.
 
-## 1) Place `data.csv` and `geoinfo.geojson` (import-only)
+## Configuration (new)
 
-The running dashboard must **not** read CSV/GeoJSON at runtime.
+Set via environment variables:
 
-### Option A — Single dataset (backward compatible)
+- `APP_ENV` (default `development`)
+- `LOG_LEVEL` (default `INFO`)
+- `CORS_ORIGINS` (comma-separated)
+- `MAP_LIMIT_DEFAULT` / `MAP_LIMIT_MAX`
+- `CACHE_TTL_SHORT_SECONDS` / `CACHE_TTL_MEDIUM_SECONDS` / `CACHE_TTL_LONG_SECONDS` / `CACHE_TTL_DAILY_SECONDS`
+- `DATABASE_URL`, `REDIS_URL`
 
-```
-data/import/data.csv
-data/import/geoinfo.geojson
-```
-
-This imports as dataset key: `station`.
-
-### Option B — Multiple datasets (recommended)
-
-Create one folder per spatial layer:
-
-```
-data/import/station/data.csv
-data/import/station/geoinfo.geojson
-
-data/import/province/data.csv
-data/import/province/geoinfo.geojson
-
-data/import/county/data.csv
-data/import/county/geoinfo.geojson
-```
-
-Each folder name becomes a selectable dataset layer in the UI.
-
----
-
-## 2) One-time import
-
-### Option A — Docker (recommended)
+## Import data
 
 ```bash
-make dev
-# wait until PostGIS is healthy, then in another terminal:
-docker compose -f docker-compose.dev.yml exec backend python /app/import_data.py --replace
-```
-
-### Option B — Local Python (advanced)
-
-Run the import script locally if you have a running PostgreSQL+PostGIS instance.
-
-```bash
-export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/drought"
 python import_data.py --replace
 ```
 
----
+After import, the script now invalidates API caches automatically.
 
-
-### Trend precomputation (zero-delay first click)
-
-Trends are now stored in a persistent table and can be precomputed independently:
-
-```bash
-python backend/scripts/precompute_trends.py
-# optional
-python backend/scripts/precompute_trends.py --level station --index spi3
-```
-
-The importer automatically runs trend precomputation after each dataset import so map and panel trends are ready immediately.
-
-## 3) Run
-
-### Development (hot reload)
+## Run
 
 ```bash
 make dev
-```
-
-### Production
-
-```bash
+# or
 make prod
 ```
-
-This imports as dataset key: `station`.
-
-### Option B — Multiple datasets (recommended)
-
-Create one folder per spatial layer:
-
-```
-data/import/station/data.csv
-data/import/station/geoinfo.geojson
-
-data/import/province/data.csv
-data/import/province/geoinfo.geojson
-
-data/import/county/data.csv
-data/import/county/geoinfo.geojson
-```
-
-Each folder name becomes a selectable dataset layer in the UI.
-
----
-
-## 2) One-time import
-
-### Option A — Docker (recommended)
-
-```bash
-make dev
-# wait until PostGIS is healthy, then in another terminal:
-docker compose -f docker-compose.dev.yml exec backend python /app/import_data.py --replace
-```
-
-### Option B — Local Python (advanced)
-
-Run the import script locally if you have a running PostgreSQL+PostGIS instance.
-
-```bash
-export DATABASE_URL="postgresql+psycopg2://postgres:postgres@localhost:5432/drought"
-python import_data.py --replace
-```
-
----
-
-
-### Trend precomputation (zero-delay first click)
-
-Trends are now stored in a persistent table and can be precomputed independently:
-
-```bash
-python backend/scripts/precompute_trends.py
-# optional
-python backend/scripts/precompute_trends.py --level station --index spi3
-```
-
-The importer automatically runs trend precomputation after each dataset import so map and panel trends are ready immediately.
-
-## 3) Run
-
-### Development (hot reload)
-
-```bash
-make dev
-```
-
-### Production
-
-```bash
-make prod
-```
-
-### In Production Convert:
-const API_BASE = "http://localhost:8000" to const API_BASE = window.API_BASE_URL || "http://localhost:8000";
 
 - Frontend: `http://localhost:8080`
-- Backend docs (OpenAPI): `http://localhost:8000/docs`
+- Backend docs: `http://localhost:8000/docs`
 
----
-
-## API (multi-layer)
+## API
 
 - `GET /health`
-- `GET /datasets` (list available imported layers)
-- `GET /meta?level=<dataset_key>` (indices + dataset min/max)
-- `GET /mapdata?level=<dataset_key>&index=spi3&date=YYYY-MM&bbox=minLon,minLat,maxLon,maxLat&limit=...&offset=...`
-- `GET /overview?level=<dataset_key>&index=spi3&date=YYYY-MM` (server-side aggregation)
-- `GET /timeseries?region_id=<feature_id>&level=<dataset_key>&index=spi3` (full series with missing months as null)
-- `GET /kpi?region_id=<feature_id>&level=<dataset_key>&index=spi3&date=YYYY-MM` (auto-adjusts to nearest available month)
+- `GET /datasets`
+- `GET /meta?level=<dataset_key>`
+- `GET /regions?level=<dataset_key>`
+- `GET /mapdata?level=<dataset_key>&index=spi3&date=YYYY-MM&bbox=minLon,minLat,maxLon,maxLat`
+- `GET /overview?level=<dataset_key>&index=spi3&date=YYYY-MM`
+- `GET /timeseries?region_id=<id>&level=<dataset_key>&index=spi3`
+- `GET /kpi?region_id=<id>&level=<dataset_key>&index=spi3&date=YYYY-MM`
+- `POST /admin/cache/invalidate?prefix=api:`
 
----
+## Changelog
 
-## What changed (performance diagnosis)
+### Added
+- Env-based settings module.
+- Cache invalidation endpoint and importer-driven invalidation.
+- Backend exception handlers for consistent error payloads.
 
-The original implementation loaded and indexed the **entire** CSV and GeoJSON in Python on first request. On large datasets (50MB CSV, 600k+ rows), this caused:
+### Changed
+- `/regions` now uses direct feature listing query.
+- Frontend `onDateChanged()` now refreshes both map and overview together.
+- Frontend fetch error handling parses backend error messages.
 
-- slow pandas parsing
-- extremely expensive `DataFrame.iterrows()` loops
-- huge nested Python dictionaries (month → station → index)
-- long single-thread CPU spikes that blocked the map request
+### Fixed
+- Reduced stale overview updates during rapid filter/date changes.
+- Removed silent backend fallback on `/regions` failures.
 
-The redesign moves all heavy work to **one-time ingestion**, and serves the map from indexed database queries.
+## Compatibility notes
 
----
-
-## Date management (unified + robust)
-
-The frontend now uses a **single, consistent date controller** that avoids the old issues caused by mixing map dates and station dates.
-
-### Two independent timelines
-
-1) **Global map month** (controls what is rendered on the map)
-   - UI: the month picker at the top + the bottom timeline slider
-   - Drives backend calls:
-     - `GET /mapdata?level=<layer>&index=<idx>&date=YYYY-MM&bbox=...`
-     - `GET /overview?level=<layer>&index=<idx>&date=YYYY-MM`
-
-2) **Panel (feature) month** (controls KPI selection for the selected station/polygon)
-   - UI: the slider under the time series chart
-   - Drives backend call:
-     - `GET /kpi?region_id=<id>&level=<layer>&index=<idx>&date=YYYY-MM`
-
-These are **decoupled** on purpose:
-- Selecting a station with a short history must **not** lock the global map timeline.
-- Switching stations must **not** require a page refresh.
-
-### Different time ranges per station/polygon
-
-Every feature has its own temporal coverage:
-- During import, we compute `features.min_date` / `features.max_date` per feature.
-- For each selected feature + index, the backend computes per-index bounds (ignoring NULL values).
-
-When you click a feature:
-1) The UI requests the full time series via `/timeseries`.
-2) The response includes `min_month` and `max_month`.
-3) The panel slider is reconfigured so its range **always matches the full available feature range**.
-4) If the current panel month is outside the valid range, it is **auto-clamped**.
-
-### Missing months
-
-`/timeseries` returns a **continuous monthly series**:
-- Missing months are returned with `value: null`.
-- This prevents chart axis shrinkage and keeps the time slider stable.
-
-### Preventing empty/invalid KPI states
-
-If the requested panel month has no value (or lies outside the feature range), the backend resolves an **effective month**:
-- outside bounds → clamped to min/max
-- inside bounds but NULL → nearest previous month with value, else nearest next month
-
-The API returns:
-- `requested_month`
-- `effective_month`
-- `note` (e.g., `clamped-to-end;nearest-previous`)
-
-The frontend then **syncs the panel slider** to `effective_month` to avoid blank KPI cards.
-
----
-
-## Search mode behavior
-
-Search works completely client-side (fast and avoids extra server load):
-- Matching features stay fully visible.
-- Non-matching features are faded **and made non-interactive**:
-  - `pointer-events: none` on their SVG elements
-  - hover/click handlers also guard against interaction
-
-A **Clear search** button resets the filter and restores normal hover/click behavior.
-
+- Existing endpoints are preserved.
+- Error body shape is now standardized; clients reading legacy plain `detail` should switch to `error.message`.
+- Existing cache keys are effectively invalidated (new `api:*` prefixes).

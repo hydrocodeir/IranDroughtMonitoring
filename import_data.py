@@ -56,7 +56,8 @@ import sys
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str((ROOT / "backend").resolve()))
 from app.database import engine  # noqa: E402
-from app.datasets_store import get_available_indices, precompute_trend_stats  # noqa: E402
+from app.datasets_store import clear_store_caches, get_available_indices, precompute_trend_stats  # noqa: E402
+from app.cache import clear_cache  # noqa: E402
 
 
 DATASET_KEY_RE = re.compile(r"^[a-zA-Z0-9_]+$")
@@ -532,6 +533,9 @@ def main() -> None:
     for dataset_key, folder in datasets:
         import_one_dataset(dataset_key, folder, replace=bool(args.replace), chunksize=int(args.chunksize))
 
+    clear_store_caches()
+    deleted = clear_cache("api:")
+    print(f"Cleared API cache entries after import: {deleted}")
     print("Done. Start the dashboard (FastAPI + frontend).")
 
 
