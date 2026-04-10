@@ -236,6 +236,10 @@ const DROUGHT_THRESHOLD_LINES = Object.freeze([
   { yAxis: -2.0, name: 'D4' },
 ]);
 
+function isDroughtIndex(indexName) {
+  return /^(spi|spei)\d+$/i.test(String(indexName || '').trim());
+}
+
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -515,15 +519,16 @@ function applySeverityStyle(sev) {
 }
 
 function renderKPI(kpi, featureName, indexLabel, panelMonth) {
-  const sev = kpi.severity || '-';
+  const droughtMode = isDroughtIndex(indexLabel);
+  const sev = droughtMode ? (kpi.severity || '-') : '—';
   document.getElementById('panelTitle').textContent = `${featureName}`;
   const m = panelMonth || dateEl.value;
   document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
   const metricLabelEl = document.getElementById('mainMetricLabel');
   if (metricLabelEl) metricLabelEl.textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
-  document.getElementById('severityBadge').textContent = severityLong[sev] || sev;
-  applySeverityStyle(sev);
+  document.getElementById('severityBadge').textContent = droughtMode ? (severityLong[sev] || sev) : 'متغیر اقلیمی';
+  if (droughtMode) applySeverityStyle(sev);
 
   document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
   document.getElementById('pVal').textContent = formatPValue(kpi.trend?.p_value);
@@ -734,6 +739,7 @@ function getStartValueForLastYears(parsedData, years = 5) {
 }
 
 function renderChart(ts, indexLabel, mapMonth, panelMonth) {
+  const droughtMode = isDroughtIndex(indexLabel);
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${mapMonth}|${panelMonth}|${ts.length}|${lastPoint}`;
@@ -769,7 +775,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   }
 
   const markLineData = [
-    ...DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })),
+    ...(droughtMode ? DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })) : []),
     { xAxis: selectedDate, name: 'نقشه' },
     { xAxis: panelDate, name: 'ناحیه' }
   ];
@@ -827,7 +833,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
 
         const primary = entries.find((e) => e?.seriesName === formatIndexLabel(indexLabel)) || entries[0];
         const primaryVal = Array.isArray(primary?.value) ? Number(primary.value[1]) : Number(primary?.value);
-        const sev = Number.isFinite(primaryVal) ? classify(primaryVal) : null;
+        const sev = (droughtMode && Number.isFinite(primaryVal)) ? classify(primaryVal) : null;
         const sevRow = sev ? `Severity: <strong>${sev}</strong>` : null;
         const html = [axisValue, ...visible, sevRow].filter(Boolean).join('<br/>');
         return `
@@ -869,9 +875,9 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       type: 'value',
       name: '',
       nameTextStyle: { color: '#6b7280', padding: [0, 0, 0, 8] },
-      min: -3,
-      max: 2,
-      interval: 1,
+      min: droughtMode ? -3 : 'dataMin',
+      max: droughtMode ? 2 : 'dataMax',
+      interval: droughtMode ? 1 : null,
       axisLabel: {
         color: '#6b7280',
         formatter: (value) => value
@@ -886,6 +892,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       show: false,
       dimension: 1,
       seriesIndex: 0,
+      inRange: droughtMode ? undefined : { color: ['#93c5fd', '#2563eb'] },
       pieces: [
         { min: 0, color: '#a2e8c6' },
         { min: -0.5, max: 0, color: '#c7eed8' },
@@ -933,10 +940,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
         data: parsedData,
         symbol: 'none',
         lineStyle: { width: 2 },
-        areaStyle: {
-          origin: 0,
-          opacity: 0.7
-        },
+        areaStyle: droughtMode ? { origin: 0, opacity: 0.7 } : { opacity: 0.28 },
         animation: false,
         markLine: {
           animation: false,
@@ -971,6 +975,10 @@ function formatIndexLabel(value) {
   const raw = String(value || '');
   const m = raw.match(/^(spi|spei)(\d+)$/i);
   if (m) return `${m[1].toUpperCase()}-${m[2]}`;
+  if (/^tmin$/i.test(raw)) return 'Tmin';
+  if (/^tmax$/i.test(raw)) return 'Tmax';
+  if (/^tmean$/i.test(raw)) return 'Tmean';
+  if (/^precip$/i.test(raw)) return 'Precip';
   return raw.toUpperCase();
 }
 
@@ -983,7 +991,11 @@ function updateSubtitles() {
   if (overviewSubtitleEl) overviewSubtitleEl.textContent = text;
 
   const legendTitle = document.getElementById('legendTitle');
-  if (legendTitle) legendTitle.textContent = `راهنمای شدت خشکسالی • ${idxLabel}`;
+  if (legendTitle) {
+    legendTitle.textContent = isDroughtIndex(indexEl.value)
+      ? `راهنمای شدت خشکسالی • ${idxLabel}`
+      : `راهنمای متغیر اقلیمی • ${idxLabel}`;
+  }
 }
 
 function ensureOverviewChart() {
@@ -997,6 +1009,35 @@ function renderOverviewFromCounts(payload) {
   updateSubtitles();
   const chartInstance = ensureOverviewChart();
   if (!chartInstance) return;
+  if (payload?.mode === 'climate') {
+    const withValue = Number(payload?.with_value || 0);
+    const missing = Number(payload?.missing || 0);
+    const mean = formatNumber(payload?.mean);
+    const min = formatNumber(payload?.min);
+    const max = formatNumber(payload?.max);
+    chartInstance.setOption({
+      animation: false,
+      xAxis: { type: 'category', data: ['کمینه', 'میانگین', 'بیشینه'] },
+      yAxis: { type: 'value' },
+      tooltip: { trigger: 'axis' },
+      series: [{
+        type: 'bar',
+        data: [payload?.min, payload?.mean, payload?.max],
+        itemStyle: { color: '#2563eb' },
+      }],
+      legend: { show: false },
+      grid: { left: '10%', right: '6%', top: '10%', bottom: '16%' }
+    }, true);
+    if (overviewStatsEl) {
+      overviewStatsEl.innerHTML = `
+        <div class="text-muted small mb-2">دارای داده: ${toPersianDigits(withValue)} • فاقد داده: ${toPersianDigits(missing)}</div>
+        <div class="stat-row"><div class="stat-left"><span>کمینه</span></div><div>${toPersianDigits(min)}</div></div>
+        <div class="stat-row"><div class="stat-left"><span>میانگین</span></div><div>${toPersianDigits(mean)}</div></div>
+        <div class="stat-row"><div class="stat-left"><span>بیشینه</span></div><div>${toPersianDigits(max)}</div></div>
+      `;
+    }
+    return;
+  }
 
   const order = ['Normal/Wet', 'D0', 'D1', 'D2', 'D3', 'D4'];
   const labelsFa = {
@@ -1095,7 +1136,7 @@ function addMapLegend() {
         <h6 id="legendTitle">راهنمای شدت خشکسالی</h6>
         <button id="legendToggle" class="toggle" type="button" aria-label="نمایش راهنما">▸</button>
       </div>
-      <div class="legend-body">
+      <div class="legend-body" id="legendBody">
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
         <div class="legend-sep"></div>
         <div class="legend-subtitle">راهنمای روند (کل دوره)</div>
@@ -1137,7 +1178,10 @@ function setHoverInfo(feature, indexName) {
   const value = hasValue ? formatNumber(feature?.properties?.value) : '—';
   const t = classifyTrend(feature?.properties?.trend, 0.05);
   hoverNameEl.textContent = name;
-  const sevText = (sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev);
+  const droughtMode = isDroughtIndex(indexName);
+  const sevText = droughtMode
+    ? ((sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev))
+    : '—';
   
   hoverIndexEl.textContent = `${formatIndexLabel(indexName)}`;
   hoverValueEl.textContent = value;
@@ -1734,3 +1778,4 @@ async function initApp() {
 }
 
 initApp();
+  const droughtMode = isDroughtIndex(indexLabel);

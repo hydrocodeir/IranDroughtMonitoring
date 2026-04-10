@@ -373,7 +373,47 @@ def fetch_overview_counts(*, dataset_key: str, index: str, yyyymm: str) -> dict[
     month_date = _parse_yyyymm(yyyymm)
     ts = _ts_table(dataset_key)
 
-    # Thresholds mirror frontend classify() and utils.drought_class().
+    is_drought = idx.startswith("spi") or idx.startswith("spei")
+
+    if is_drought:
+        # Thresholds mirror frontend classify() and utils.drought_class().
+        sql = text(
+            f"""
+            WITH v AS (
+              SELECT {idx_sql} AS val
+              FROM {ts}
+              WHERE date = :target_date
+            )
+            SELECT
+              COUNT(*) FILTER (WHERE val IS NOT NULL) AS with_value,
+              COUNT(*) FILTER (WHERE val IS NULL) AS missing,
+              COUNT(*) FILTER (WHERE val >= 0) AS normal_wet,
+              COUNT(*) FILTER (WHERE val < 0 AND val >= -0.8) AS d0,
+              COUNT(*) FILTER (WHERE val < -0.8 AND val >= -1.3) AS d1,
+              COUNT(*) FILTER (WHERE val < -1.3 AND val >= -1.6) AS d2,
+              COUNT(*) FILTER (WHERE val < -1.6 AND val >= -2.0) AS d3,
+              COUNT(*) FILTER (WHERE val < -2.0) AS d4
+            FROM v;
+            """
+        )
+
+        with engine.begin() as conn:
+            row = conn.execute(sql, {"target_date": month_date}).fetchone()
+
+        return {
+            "mode": "drought",
+            "date": yyyymm,
+            "index": idx,
+            "with_value": int(row.with_value or 0),
+            "missing": int(row.missing or 0),
+            "Normal/Wet": int(row.normal_wet or 0),
+            "D0": int(row.d0 or 0),
+            "D1": int(row.d1 or 0),
+            "D2": int(row.d2 or 0),
+            "D3": int(row.d3 or 0),
+            "D4": int(row.d4 or 0),
+        }
+
     sql = text(
         f"""
         WITH v AS (
@@ -384,13 +424,10 @@ def fetch_overview_counts(*, dataset_key: str, index: str, yyyymm: str) -> dict[
         SELECT
           COUNT(*) FILTER (WHERE val IS NOT NULL) AS with_value,
           COUNT(*) FILTER (WHERE val IS NULL) AS missing,
-          COUNT(*) FILTER (WHERE val >= 0) AS normal_wet,
-          COUNT(*) FILTER (WHERE val < 0 AND val >= -0.8) AS d0,
-          COUNT(*) FILTER (WHERE val < -0.8 AND val >= -1.3) AS d1,
-          COUNT(*) FILTER (WHERE val < -1.3 AND val >= -1.6) AS d2,
-          COUNT(*) FILTER (WHERE val < -1.6 AND val >= -2.0) AS d3,
-          COUNT(*) FILTER (WHERE val < -2.0) AS d4
-        FROM v;
+          MIN(val) AS min_value,
+          MAX(val) AS max_value,
+          AVG(val) AS mean_value
+        FROM v
         """
     )
 
@@ -398,16 +435,14 @@ def fetch_overview_counts(*, dataset_key: str, index: str, yyyymm: str) -> dict[
         row = conn.execute(sql, {"target_date": month_date}).fetchone()
 
     return {
+        "mode": "climate",
         "date": yyyymm,
         "index": idx,
         "with_value": int(row.with_value or 0),
         "missing": int(row.missing or 0),
-        "Normal/Wet": int(row.normal_wet or 0),
-        "D0": int(row.d0 or 0),
-        "D1": int(row.d1 or 0),
-        "D2": int(row.d2 or 0),
-        "D3": int(row.d3 or 0),
-        "D4": int(row.d4 or 0),
+        "min": _json_safe_float(row.min_value),
+        "max": _json_safe_float(row.max_value),
+        "mean": _json_safe_float(row.mean_value),
     }
 
 
