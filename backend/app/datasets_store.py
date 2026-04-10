@@ -37,6 +37,7 @@ We therefore:
 from __future__ import annotations
 
 import re
+import math
 from datetime import date
 from functools import lru_cache
 from typing import Any, Iterable
@@ -47,6 +48,22 @@ from .database import engine
 from .utils import mann_kendall_and_sen
 
 _DATASET_KEY_RE = re.compile(r"^[A-Za-z0-9_]+$")
+
+
+def _json_safe_float(value: Any) -> float | None:
+    """Convert value to a finite float, otherwise return None.
+
+    Starlette JSON responses reject NaN/Inf values (JSON compliant mode).
+    Some imported datasets may contain non-finite numeric values, so we
+    normalize them to null at the API boundary.
+    """
+    if value is None:
+        return None
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return None
+    return out if math.isfinite(out) else None
 
 
 def _validate_dataset_key(value: str) -> str:
@@ -327,7 +344,7 @@ def fetch_features_geojson(
             "id": str(r.feature_id),
             "name": str(r.name),
             "province": r.province,
-            "value": float(r.value) if r.value is not None else None,
+            "value": _json_safe_float(r.value),
         }
         features.append({"type": "Feature", "geometry": geom, "properties": props})
 
@@ -460,7 +477,7 @@ def fetch_timeseries_full(*, dataset_key: str, feature_id: str, index: str) -> d
     with engine.begin() as conn:
         rows = conn.execute(sql, {"min_d": min_d, "max_d": max_d, "fid": str(feature_id)}).fetchall()
 
-    data = [{"date": r.date.isoformat(), "value": (float(r.value) if r.value is not None else None)} for r in rows]
+    data = [{"date": r.date.isoformat(), "value": _json_safe_float(r.value)} for r in rows]
 
     return {
         "feature": fetch_feature_name(key, feature_id),
@@ -516,7 +533,7 @@ def find_effective_month_for_value(
             {"fid": str(feature_id), "d": eff},
         ).fetchone()
         if exact and exact.v is not None:
-            return eff, float(exact.v), note
+            return eff, _json_safe_float(exact.v), note
 
         prev = conn.execute(
             text(
@@ -531,7 +548,7 @@ def find_effective_month_for_value(
             {"fid": str(feature_id), "d": eff},
         ).fetchone()
         if prev:
-            return prev.date, float(prev.v), (note or "") + ("" if note is None else ";") + "nearest-previous"
+            return prev.date, _json_safe_float(prev.v), (note or "") + ("" if note is None else ";") + "nearest-previous"
 
         nxt = conn.execute(
             text(
@@ -546,7 +563,7 @@ def find_effective_month_for_value(
             {"fid": str(feature_id), "d": eff},
         ).fetchone()
         if nxt:
-            return nxt.date, float(nxt.v), (note or "") + ("" if note is None else ";") + "nearest-next"
+            return nxt.date, _json_safe_float(nxt.v), (note or "") + ("" if note is None else ";") + "nearest-next"
 
     return eff, None, (note or "") + ("" if note is None else ";") + "no-value"
 
@@ -588,7 +605,12 @@ def fetch_values_up_to(
     with engine.begin() as conn:
         rows = conn.execute(sql, params).fetchall()
 
-    return [float(r.v) for r in rows if r.v is not None]
+    vals: list[float] = []
+    for r in rows:
+        v = _json_safe_float(r.v)
+        if v is not None:
+            vals.append(v)
+    return vals
 
 
 def ensure_trend_stats_table() -> None:
@@ -652,7 +674,7 @@ def precompute_trend_stats(*, dataset_key: str, index: str) -> int:
         )
 
         for r in rows:
-            vals = [float(v) for v in list(r.vals or []) if v is not None]
+            vals = [v for v in (_json_safe_float(vv) for vv in list(r.vals or [])) if v is not None]
             trend = mann_kendall_and_sen(vals)
             conn.execute(
                 text(
@@ -716,9 +738,9 @@ def fetch_trend_stats_all(*, dataset_key: str, index: str) -> dict[str, dict[str
 
     for r in rows:
         out[str(r.feature_id)] = {
-            "tau": float(r.tau) if r.tau is not None else None,
-            "p_value": float(r.p_value) if r.p_value is not None else None,
-            "sen_slope": float(r.sen_slope) if r.sen_slope is not None else None,
+            "tau": _json_safe_float(r.tau),
+            "p_value": _json_safe_float(r.p_value),
+            "sen_slope": _json_safe_float(r.sen_slope),
             "trend": r.trend,
             "trend_category": r.trend_category,
             "trend_label_en": r.trend_label_en,
@@ -734,9 +756,9 @@ def fetch_trend_stats_all(*, dataset_key: str, index: str) -> dict[str, dict[str
         rows = conn.execute(sql, {"k": key, "i": idx}).fetchall()
     for r in rows:
         out[str(r.feature_id)] = {
-            "tau": float(r.tau) if r.tau is not None else None,
-            "p_value": float(r.p_value) if r.p_value is not None else None,
-            "sen_slope": float(r.sen_slope) if r.sen_slope is not None else None,
+            "tau": _json_safe_float(r.tau),
+            "p_value": _json_safe_float(r.p_value),
+            "sen_slope": _json_safe_float(r.sen_slope),
             "trend": r.trend,
             "trend_category": r.trend_category,
             "trend_label_en": r.trend_label_en,
@@ -766,9 +788,9 @@ def fetch_precomputed_trend(*, dataset_key: str, index: str, feature_id: str) ->
     if not row:
         return None
     return {
-        "tau": float(row.tau) if row.tau is not None else None,
-        "p_value": float(row.p_value) if row.p_value is not None else None,
-        "sen_slope": float(row.sen_slope) if row.sen_slope is not None else None,
+        "tau": _json_safe_float(row.tau),
+        "p_value": _json_safe_float(row.p_value),
+        "sen_slope": _json_safe_float(row.sen_slope),
         "trend": row.trend,
         "trend_category": row.trend_category,
         "trend_label_en": row.trend_label_en,
