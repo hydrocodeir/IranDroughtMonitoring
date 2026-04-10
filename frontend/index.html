@@ -352,6 +352,36 @@
             <li><strong>کارایی:</strong> درخواست‌ها با Cache و بدون بارگذاری مجدد صفحه مدیریت می‌شوند.</li>
             <li><strong>پشتیبانی RTL:</strong> چیدمان و تایپوگرافی برای فارسی بهینه شده است.</li>
           </ul>
+          <hr />
+          <h6 class="mb-2">نحوه استفاده از API (مثال کامل)</h6>
+          <p class="mb-2">
+            آدرس پایه API به‌صورت پیش‌فرض:
+            <code>http://localhost:8000</code>
+          </p>
+          <ul class="clean-list">
+            <li><code>GET /datasets</code> — لیست لایه‌ها</li>
+            <li><code>GET /meta?level=station</code> — متادیتا (بازه زمانی + شاخص‌ها)</li>
+            <li><code>GET /mapdata?level=station&amp;index=spi3&amp;date=2020-01</code> — داده نقشه</li>
+            <li><code>GET /timeseries?region_id=10001&amp;level=station&amp;index=spi3</code> — سری زمانی</li>
+            <li><code>GET /kpi?region_id=10001&amp;level=station&amp;index=spi3&amp;date=2020-01</code> — شاخص‌های خلاصه + روند</li>
+          </ul>
+          <p class="mb-1"><strong>مثال end-to-end با cURL:</strong></p>
+          <pre class="mb-2" dir="ltr" style="white-space: pre-wrap;">
+# 1) دریافت لایه‌ها
+curl "http://localhost:8000/datasets"
+
+# 2) دریافت متادیتا برای station
+curl "http://localhost:8000/meta?level=station"
+
+# 3) دریافت داده نقشه برای شاخص اقلیمی (مثال: precip)
+curl "http://localhost:8000/mapdata?level=station&index=precip&date=2020-01"
+
+# 4) دریافت سری زمانی یک ناحیه
+curl "http://localhost:8000/timeseries?region_id=10001&level=station&index=precip"
+
+# 5) دریافت KPI و روند همان ناحیه در یک ماه مشخص
+curl "http://localhost:8000/kpi?region_id=10001&level=station&index=precip&date=2020-01"
+          </pre>
           <div class="callout">
             برای بهترین تجربه، از مرورگرهای به‌روز استفاده کنید. در موبایل می‌توانید پنل‌ها را از هدر باز/بسته کنید.
           </div>
