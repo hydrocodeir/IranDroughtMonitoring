@@ -65,7 +65,13 @@ async function loadMetaForSelectedDataset() {
 
     const preferred = ['spi3', 'spei3', meta.indices[0]];
     const chosen = preferred.find((v) => meta.indices.includes(v)) || meta.indices[0];
-    indexEl.value = meta.indices.includes(indexEl.value) ? indexEl.value : chosen;
+    if (!hasInitializedIndexSelection) {
+      // Initial app load: default to SPI-3 (or SPEI-3 fallback) when present.
+      indexEl.value = chosen;
+      hasInitializedIndexSelection = true;
+    } else {
+      indexEl.value = meta.indices.includes(indexEl.value) ? indexEl.value : chosen;
+    }
   }
 
   if (meta.min_month && meta.max_month) {
@@ -121,6 +127,7 @@ let panelAbortController = null;
 let lastChartRenderKey = null;
 let chartResizeBound = false;
 let appIsReady = false;
+let hasInitializedIndexSelection = false;
 
 // Global (map) month bounds for the currently selected dataset layer.
 let globalMinMonth = null;
