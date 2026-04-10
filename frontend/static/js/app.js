@@ -120,10 +120,12 @@ let currentRangeStart = null;
 let currentRangeEnd = null;
 let mapRequestSeq = 0;
 let panelRequestSeq = 0;
+let overviewRequestSeq = 0;
 let lastPanelQueryKey = null;
 let mapUpdateDebounce = null;
 let mapAbortController = null;
 let panelAbortController = null;
+let overviewAbortController = null;
 let lastChartRenderKey = null;
 let chartResizeBound = false;
 let appIsReady = false;
@@ -396,7 +398,14 @@ function debounce(fn, wait = 200) {
 
 async function fetchJson(url, options = {}) {
   const res = await fetch(url, options);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const payload = await res.json();
+      message = payload?.error?.message || payload?.detail?.message || payload?.detail || message;
+    } catch (_) {}
+    throw new Error(message);
+  }
   return res.json();
 }
 
@@ -1332,7 +1341,11 @@ async function loadMap() {
     );
     // NOTE: we intentionally avoid prefetching when bbox-based loading is enabled.
     // Adjacent-month prefetch can explode cache keys while the user is panning.
-  } catch (_) {}
+  } catch (err) {
+    if (String(err?.name) !== 'AbortError') {
+      mapSubtitleEl.textContent = `خطا در بارگذاری نقشه: ${err.message || 'Unknown error'}`;
+    }
+  }
 
   if (reqId !== mapRequestSeq) { toggleMapLoading(false); return; }
 
@@ -1413,15 +1426,22 @@ async function loadOverview() {
   const idx = indexEl.value;
   const date = dateEl.value;
   const key = `${level}|${idx}|${date}`;
+  const reqId = ++overviewRequestSeq;
+  if (overviewAbortController) overviewAbortController.abort();
+  overviewAbortController = new AbortController();
   try {
     const payload = await fetchCached(
       overviewCache,
       key,
-      () => `${API_BASE}/overview?level=${level}&index=${idx}&date=${date}`
+      () => `${API_BASE}/overview?level=${level}&index=${idx}&date=${date}`,
+      { signal: overviewAbortController.signal }
     );
+    if (reqId !== overviewRequestSeq) return;
     renderOverviewFromCounts(payload);
-  } catch (_) {
+  } catch (err) {
+    if (String(err?.name) === 'AbortError') return;
     // The map can still function even if overview fails.
+    updateOverviewSubtitle(`خطا در بارگذاری خلاصه: ${err.message || 'Unknown error'}`);
   }
 }
 
@@ -1543,7 +1563,7 @@ function findSelectedFeatureFromCurrentMap() {
 async function onDateChanged() {
   syncGlobalSliderFromInput();
   updateSubtitles();
-  await Promise.all([loadMap()]);
+  await Promise.all([loadMap(), loadOverview()]);
 
   // Do NOT refetch the panel on global date changes.
   // The panel has its own stationMonth (slider) and only needs the chart marker updated.
@@ -1597,6 +1617,10 @@ function setupEvents() {
     stationMonthInt = null;
     if (stationSliderEl) stationSliderEl.disabled = true;
     setPanelOpen(false);
+    mapDataCache.clear();
+    panelKpiCache.clear();
+    timeseriesCache.clear();
+    overviewCache.clear();
     await loadMetaForSelectedDataset();
     await onDateChanged();
   });

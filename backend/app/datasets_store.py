@@ -266,6 +266,24 @@ def fetch_feature_name(dataset_key: str, feature_id: str) -> str:
     return str(row.name) if row else str(feature_id)
 
 
+def fetch_regions(*, dataset_key: str) -> list[dict[str, str]]:
+    """List regions (id/name) for a dataset without loading geometries."""
+    key = resolve_dataset_key(dataset_key)
+    with engine.begin() as conn:
+        rows = conn.execute(
+            text(
+                """
+                SELECT feature_id, COALESCE(name, feature_id) AS name
+                FROM features
+                WHERE dataset_key = :k
+                ORDER BY name
+                """
+            ),
+            {"k": key},
+        ).fetchall()
+    return [{"id": str(r.feature_id), "name": str(r.name), "level": key} for r in rows]
+
+
 def fetch_features_geojson(
     *,
     dataset_key: str,
@@ -832,3 +850,8 @@ def fetch_precomputed_trend(*, dataset_key: str, index: str, feature_id: str) ->
         "trend_label_fa": row.trend_label_fa,
         "trend_symbol": row.trend_symbol,
     }
+
+
+def clear_store_caches() -> None:
+    resolve_dataset_key.cache_clear()
+    get_available_indices.cache_clear()
