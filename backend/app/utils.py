@@ -1,8 +1,17 @@
 import math
+import warnings
 import pymannkendall as mk
 
 
 DEFAULT_TREND_ALPHA = 0.05
+
+
+def _safe_finite_float(value, fallback: float) -> float:
+    try:
+        out = float(value)
+    except (TypeError, ValueError):
+        return fallback
+    return out if math.isfinite(out) else fallback
 
 
 def drought_class(value: float) -> str:
@@ -20,21 +29,44 @@ def drought_class(value: float) -> str:
 
 
 def mann_kendall_and_sen(values):
-    if len(values) < 2:
+    finite_values = []
+    for v in values or []:
+        try:
+            fv = float(v)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(fv):
+            finite_values.append(fv)
+
+    if len(finite_values) < 2:
         return {
             "tau": 0.0,
             "p_value": 1.0,
             "sen_slope": 0.0,
             "trend": "no trend",
+            **classify_trend(0.0, 1.0, alpha=DEFAULT_TREND_ALPHA),
         }
 
-    # Apply variance correction for serial autocorrelation based on
-    # Hamed & Rao (1998) modified Mann-Kendall test.
-    result = mk.hamed_rao_modification_test(values)
+    # hamed_rao_modification_test can fail for very short series (n < 3)
+    # and some degenerate inputs. In those cases we gracefully fall back
+    # to the classic Mann-Kendall test.
+    result = None
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            if len(finite_values) >= 3:
+                result = mk.hamed_rao_modification_test(finite_values)
+            else:
+                result = mk.original_test(finite_values)
+    except (ZeroDivisionError, FloatingPointError, ValueError):
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=RuntimeWarning)
+            result = mk.original_test(finite_values)
+
     out = {
-        "tau": float(result.Tau),
-        "p_value": float(result.p),
-        "sen_slope": float(result.slope),
+        "tau": _safe_finite_float(getattr(result, "Tau", None), 0.0),
+        "p_value": _safe_finite_float(getattr(result, "p", None), 1.0),
+        "sen_slope": _safe_finite_float(getattr(result, "slope", None), 0.0),
         "trend": str(result.trend),
     }
 
