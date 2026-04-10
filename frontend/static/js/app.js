@@ -240,6 +240,11 @@ function isDroughtIndex(indexName) {
   return /^(spi|spei)\d+$/i.test(String(indexName || '').trim());
 }
 
+function isBarClimateIndex(indexName) {
+  const idx = String(indexName || '').trim().toLowerCase();
+  return idx.includes('precip') || idx.includes('pet');
+}
+
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -748,6 +753,7 @@ function getStartValueForLastYears(parsedData, years = 5) {
 
 function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   const droughtMode = isDroughtIndex(indexLabel);
+  const barClimateMode = !droughtMode && isBarClimateIndex(indexLabel);
   const selectedId = String(selectedFeature?.properties?.id || 'unknown');
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${mapMonth}|${panelMonth}|${ts.length}|${lastPoint}`;
@@ -885,7 +891,6 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       nameTextStyle: { color: '#6b7280', padding: [0, 0, 0, 8] },
       min: droughtMode ? -3 : 'dataMin',
       max: droughtMode ? 2 : 'dataMax',
-      interval: droughtMode ? 1 : null,
       axisLabel: {
         color: '#6b7280',
         formatter: (value) => value
@@ -894,22 +899,6 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
         show: true,
         lineStyle: { color: '#e5e7eb' }
       }
-    },
-    visualMap: {
-      type: 'piecewise',
-      show: false,
-      dimension: 1,
-      seriesIndex: 0,
-      inRange: droughtMode ? undefined : { color: ['#93c5fd', '#2563eb'] },
-      pieces: [
-        { min: 0, color: droughtColors['Normal/Wet'] },
-        { min: -0.5, max: 0, color: '#c7eed8' },
-        { min: -0.8, max: -0.5, color: droughtColors['D0'] },
-        { min: -1.3, max: -0.8, color: droughtColors['D1'] },
-        { min: -1.6, max: -1.3, color: droughtColors['D2'] },
-        { min: -2.0, max: -1.6, color: droughtColors['D3'] },
-        { max: -2.0, color: droughtColors['D4'] }
-      ]
     },
     dataZoom: [
       {
@@ -946,9 +935,10 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
         name: formatIndexLabel(indexLabel),
         type: barClimateMode ? 'bar' : 'line',
         data: parsedData,
-        symbol: 'none',
-        lineStyle: { width: 2 },
-        areaStyle: droughtMode ? { origin: 0, opacity: 0.7 } : { opacity: 0.28 },
+        symbol: barClimateMode ? undefined : 'none',
+        lineStyle: barClimateMode ? undefined : { width: 2 },
+        itemStyle: barClimateMode ? { color: '#2563eb' } : undefined,
+        areaStyle: (droughtMode || barClimateMode) ? (droughtMode ? { origin: 0, opacity: 0.7 } : undefined) : { opacity: 0.28 },
         animation: false,
         markLine: {
           animation: false,
@@ -972,6 +962,24 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       // Timeline markers are rendered via markLine.
     ]
   };
+  if (droughtMode) {
+    option.yAxis.interval = 1;
+    option.visualMap = {
+      type: 'piecewise',
+      show: false,
+      dimension: 1,
+      seriesIndex: 0,
+      pieces: [
+        { min: 0, color: droughtColors['Normal/Wet'] },
+        { min: -0.5, max: 0, color: '#c7eed8' },
+        { min: -0.8, max: -0.5, color: droughtColors['D0'] },
+        { min: -1.3, max: -0.8, color: droughtColors['D1'] },
+        { min: -1.6, max: -1.3, color: droughtColors['D2'] },
+        { min: -2.0, max: -1.6, color: droughtColors['D3'] },
+        { max: -2.0, color: droughtColors['D4'] }
+      ]
+    };
+  }
 
   currentRangeStart = parsedData.length ? formatChartDate(parsedData[0][0]) : null;
   currentRangeEnd = parsedData.length ? formatChartDate(parsedData[parsedData.length - 1][0]) : null;
@@ -1004,6 +1012,10 @@ function updateSubtitles() {
       ? `راهنمای شدت خشکسالی • ${idxLabel}`
       : `راهنمای متغیر اقلیمی • ${idxLabel}`;
   }
+  const trendIncLabel = document.getElementById('legendTrendInc');
+  const trendDecLabel = document.getElementById('legendTrendDec');
+  if (trendIncLabel) trendIncLabel.textContent = isDroughtIndex(indexEl.value) ? 'روند افزایشی (مرطوب‌تر)' : 'روند افزایشی';
+  if (trendDecLabel) trendDecLabel.textContent = isDroughtIndex(indexEl.value) ? 'روند کاهشی (خشک‌تر)' : 'روند کاهشی';
 }
 
 function ensureOverviewChart() {
