@@ -12,7 +12,7 @@ class AppSettings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
 
     cors_origins: str = Field(
-        default="http://localhost:8080,http://127.0.0.1:8080,http://localhost:3000,http://127.0.0.1:3000,http://drought.werifum.ir",
+        default="http://localhost:8080,http://127.0.0.1:8080,http://0.0.0.0:8080,http://localhost:3000,http://127.0.0.1:3000,http://0.0.0.0:3000,http://drought.werifum.ir",
         alias="CORS_ORIGINS",
     )
 

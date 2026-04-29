@@ -1850,4 +1850,3 @@ async function initApp() {
 }
 
 initApp();
-  const droughtMode = isDroughtIndex(indexLabel);
