@@ -48,6 +48,74 @@ make prod
 - Frontend: `http://localhost:8080`
 - Backend docs: `http://localhost:8000/docs`
 
+## Deploy to VPS for `drought.werifum.ir`
+
+1. Point DNS records to the VPS public IP:
+
+```text
+CNAME  drought  <target-host>
+# or, if your DNS provider does not use CNAME here:
+A      drought  <VPS_IP>
+```
+
+2. Install runtime packages on an Ubuntu VPS:
+
+```bash
+sudo apt update
+sudo apt install -y docker.io docker-compose-plugin nginx certbot python3-certbot-nginx git
+sudo systemctl enable --now docker nginx
+```
+
+3. Clone the project and create the production env file:
+
+```bash
+cd /opt
+sudo git clone https://github.com/HydroCodeIR/IranDroughtMonitoring.git
+sudo chown -R "$USER:$USER" IranDroughtMonitoring
+cd IranDroughtMonitoring
+cp .env.prod.example .env.prod
+nano .env.prod
+```
+
+Set a strong `POSTGRES_PASSWORD`, and keep `DATABASE_URL` in sync with it.
+
+4. Start production containers:
+
+```bash
+make prod-detached
+```
+
+The production compose file only exposes the frontend on `127.0.0.1:8080`. PostGIS, Redis, and the backend stay private inside Docker.
+
+5. Install the Nginx host config:
+
+```bash
+sudo cp deploy/nginx-drought.werifum.ir.conf /etc/nginx/sites-available/drought.werifum.ir
+sudo ln -s /etc/nginx/sites-available/drought.werifum.ir /etc/nginx/sites-enabled/drought.werifum.ir
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+6. Enable HTTPS:
+
+```bash
+sudo certbot --nginx -d drought.werifum.ir
+```
+
+7. Import or refresh data when needed:
+
+```bash
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend python /app/import_data.py --replace
+```
+
+Useful checks:
+
+```bash
+curl http://127.0.0.1:8080
+docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f backend
+```
+
 ## API
 
 - `GET /health`

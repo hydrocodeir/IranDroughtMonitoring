@@ -1,0 +1,88 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.prod}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env.prod}
+      MAP_LIMIT_DEFAULT: ${MAP_LIMIT_DEFAULT:-2000}
+      MAP_LIMIT_MAX: ${MAP_LIMIT_MAX:-10000}
+      CACHE_TTL_SHORT_SECONDS: ${CACHE_TTL_SHORT_SECONDS:-300}
+      CACHE_TTL_MEDIUM_SECONDS: ${CACHE_TTL_MEDIUM_SECONDS:-900}
+      CACHE_TTL_LONG_SECONDS: ${CACHE_TTL_LONG_SECONDS:-1800}
+      CACHE_TTL_DAILY_SECONDS: ${CACHE_TTL_DAILY_SECONDS:-86400}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.prod}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery_worker:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    command: celery -A app.worker.celery_app worker -Q drought --loglevel=info
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS: ${CORS_ORIGINS:?set CORS_ORIGINS in .env.prod}
+      MAP_LIMIT_DEFAULT: ${MAP_LIMIT_DEFAULT:-2000}
+      MAP_LIMIT_MAX: ${MAP_LIMIT_MAX:-10000}
+      CACHE_TTL_SHORT_SECONDS: ${CACHE_TTL_SHORT_SECONDS:-300}
+      CACHE_TTL_MEDIUM_SECONDS: ${CACHE_TTL_MEDIUM_SECONDS:-900}
+      CACHE_TTL_LONG_SECONDS: ${CACHE_TTL_LONG_SECONDS:-1800}
+      CACHE_TTL_DAILY_SECONDS: ${CACHE_TTL_DAILY_SECONDS:-86400}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL in .env.prod}
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/2
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "127.0.0.1:8080:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
