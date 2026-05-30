@@ -1,6 +1,9 @@
 .PHONY: dev prod prod-detached precompute-trends
 
 dev:
+	@printf "\nFrontend: http://localhost:8080\n"
+	@printf "Backend health: http://localhost:8000/health\n"
+	@printf "Note: Docker may show 0.0.0.0:8080; open localhost or 127.0.0.1 in your browser.\n\n"
 	docker compose -f docker-compose.dev.yml up --build
 
 prod:
