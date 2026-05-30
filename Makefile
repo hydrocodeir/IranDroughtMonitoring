@@ -1,4 +1,6 @@
-.PHONY: dev prod prod-detached precompute-trends
+.PHONY: dev prod prod-detached prod-ps prod-logs prod-restart prod-import prod-precompute-trends prod-down down downv dev-down precompute-trends
+
+PROD_COMPOSE = docker compose --env-file .env.prod -f docker-compose.prod.yml
 
 dev:
 	@printf "\nFrontend: http://localhost:8080\n"
@@ -7,10 +9,25 @@ dev:
 	docker compose -f docker-compose.dev.yml up --build
 
 prod:
-	docker compose --env-file .env.prod -f docker-compose.prod.yml up --build
+	$(PROD_COMPOSE) up --build
 
 prod-detached:
-	docker compose --env-file .env.prod -f docker-compose.prod.yml up --build -d
+	$(PROD_COMPOSE) up --build -d
+
+prod-ps:
+	$(PROD_COMPOSE) ps
+
+prod-logs:
+	$(PROD_COMPOSE) logs -f --tail=100
+
+prod-restart:
+	$(PROD_COMPOSE) up --build -d
+
+prod-import:
+	$(PROD_COMPOSE) exec backend python /app/import_data.py --replace
+
+prod-precompute-trends:
+	$(PROD_COMPOSE) exec backend python /app/backend/scripts/precompute_trends.py
 
 down:
 	docker compose down
@@ -22,6 +39,7 @@ dev-down:
 	docker compose -f docker-compose.dev.yml down
 
 prod-down:
-	docker compose --env-file .env.prod -f docker-compose.prod.yml down
+	$(PROD_COMPOSE) down
+
 precompute-trends:
 	docker compose -f docker-compose.dev.yml exec backend python /app/backend/scripts/precompute_trends.py
