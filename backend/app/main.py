@@ -321,10 +321,10 @@ async def panel(region_id: str, level: str = "station", index: str = "spi3"):
         return "<div class='alert alert-warning'>No KPI data</div>"
     return f"""
     <div class='card card-body'>
-      <h6>شاخص {index.upper()}</h6>
-      <div>آخرین مقدار: <strong>{data['latest']:.2f}</strong></div>
-      <div>شدت: <strong>{data['severity']}</strong></div>
-      <div>میانگین: {data['mean']:.2f} | کمینه: {data['min']:.2f} | بیشینه: {data['max']:.2f}</div>
+      <h6>Index {index.upper()}</h6>
+      <div>Latest value: <strong>{data['latest']:.2f}</strong></div>
+      <div>Severity: <strong>{data['severity']}</strong></div>
+      <div>Mean: {data['mean']:.2f} | Min: {data['min']:.2f} | Max: {data['max']:.2f}</div>
       <div>Mann-Kendall τ: {data['trend']['tau']:.3f} | Sen's slope: {data['trend']['sen_slope']:.4f}</div>
     </div>
     """
@@ -338,8 +338,8 @@ async def panel_fragment(region_id: str, level: str = "station", index: str = "s
 
     trend = data.get("trend", {})
     return f"""
-    <div class=\"kpi-card\"><small>ضریب کندال (τ)</small><strong id=\"tauVal\">{trend.get('tau', 0):.4f}</strong></div>
-    <div class=\"kpi-card\"><small>مقدار p</small><strong id=\"pVal\">{escape(str(trend.get('p_value', '-')))}</strong></div>
-    <div class=\"kpi-card\"><small>شیب سن</small><strong id=\"senVal\">{trend.get('sen_slope', 0):.4f}</strong></div>
-    <div class=\"kpi-card\"><small>مقدار</small><strong id=\"latestVal\">{data.get('latest', 0):.4f}</strong></div>
+    <div class=\"kpi-card\"><small>Kendall's τ</small><strong id=\"tauVal\">{trend.get('tau', 0):.4f}</strong></div>
+    <div class=\"kpi-card\"><small>P-value</small><strong id=\"pVal\">{escape(str(trend.get('p_value', '-')))}</strong></div>
+    <div class=\"kpi-card\"><small>Sen's slope</small><strong id=\"senVal\">{trend.get('sen_slope', 0):.4f}</strong></div>
+    <div class=\"kpi-card\"><small>Value</small><strong id=\"latestVal\">{data.get('latest', 0):.4f}</strong></div>
     """

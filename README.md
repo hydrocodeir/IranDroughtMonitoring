@@ -1,64 +1,157 @@
-# Iran Drought Monitoring Dashboard (FastAPI + Leaflet)
+# Iran Drought Monitoring
 
-This project serves drought map + trend analytics from **PostGIS**, with Redis/in-memory caching and a static frontend.
+سامانه پایش خشکسالی ایران با `FastAPI`، `PostGIS`، `Redis` و نقشه تعاملی `Leaflet`.
 
-## Production hardening highlights (April 2026)
+## امکانات
 
-- Config moved to environment-backed settings (`backend/app/settings.py`) for CORS, map limits, and cache TTLs.
-- API errors standardized to `{ "error": { "code", "message", "path" } }` with explicit HTTP handlers.
-- `/regions` optimized to query only feature id/name (no geometry loading).
-- Import pipeline now clears app caches and metadata caches after ingest.
-- Frontend now protects overview requests from staleness/overlap using abort + sequence guards.
-- Better frontend error visibility for map/overview loading failures.
+- نمایش نقشه و پنل آماری برای هر لایه
+- پشتیبانی از چند لایه داده مثل station / province / county
+- بارگذاری داده فقط یک‌بار و ذخیره در PostGIS
+- محاسبه ترندها با Mann-Kendall و Sen's slope
+- کش Redis به همراه کش درون‌حافظه‌ای
 
-## Architecture
+## پیش‌نیازها
 
-- **Backend**: FastAPI + SQLAlchemy.
-- **Data**: PostGIS tables (`datasets`, `features`, and per-layer `ts_<dataset_key>`).
-- **Cache**: Redis first, in-memory fallback.
-- **Frontend**: Leaflet map + ECharts panel.
+- Docker
+- Docker Compose
+- Git
 
-## Configuration (new)
+## ساختار داده
 
-Set via environment variables:
+داده‌ها باید داخل `data/import` قرار بگیرند.
 
-- `APP_ENV` (default `development`)
-- `LOG_LEVEL` (default `INFO`)
-- `CORS_ORIGINS` (comma-separated)
-- `MAP_LIMIT_DEFAULT` / `MAP_LIMIT_MAX`
-- `CACHE_TTL_SHORT_SECONDS` / `CACHE_TTL_MEDIUM_SECONDS` / `CACHE_TTL_LONG_SECONDS` / `CACHE_TTL_DAILY_SECONDS`
-- `DATABASE_URL`, `REDIS_URL`
+### حالت تک‌لایه
 
-## Import data
-
-```bash
-python import_data.py --replace
+```text
+data/import/data.parquet   # اولویت اول
+data/import/data.csv       # جایگزین
+data/import/geoinfo.geojson
 ```
 
-After import, the script now invalidates API caches automatically.
+این حالت به صورت پیش‌فرض با `dataset_key=station` وارد می‌شود.
 
-## Run
+### حالت چندلایه
+
+```text
+data/import/<dataset_key>/data.parquet
+data/import/<dataset_key>/data.csv
+data/import/<dataset_key>/geoinfo.geojson
+```
+
+`dataset_key` فقط می‌تواند شامل حروف، عدد و `_` باشد.
+
+### قالب CSV
+
+CSV باید یکی از این حالت‌ها را داشته باشد:
+
+- `date`
+- `year` + `month`
+- `yyyymm`
+
+ستون شناسه می‌تواند یکی از این‌ها باشد:
+
+- `feature_id`
+- `station_id`
+- `region_id`
+- `id`
+- `code`
+- `gid`
+- `fid`
+- `name`
+
+بقیه ستون‌ها به عنوان شاخص‌های زمانی ذخیره می‌شوند.
+
+> پوشه `data/user_data` در نسخه فعلی فقط برای سازگاری قدیمی است و در runtime استفاده نمی‌شود.
+
+## اجرای محلی با Docker
+
+### اجرا
 
 ```bash
 make dev
-# or
-make prod
 ```
+
+یا:
+
+```bash
+docker compose -f docker-compose.dev.yml up --build
+```
+
+### آدرس‌ها
 
 - Frontend: `http://localhost:8080`
-- Backend docs: `http://localhost:8000/docs`
+- Backend health: `http://localhost:8000/health`
+- Swagger: `http://localhost:8000/docs`
 
-## Deploy to VPS for `drought.werifum.ir`
+### توقف
 
-1. Point DNS records to the VPS public IP:
-
-```text
-CNAME  drought  <target-host>
-# or, if your DNS provider does not use CNAME here:
-A      drought  <VPS_IP>
+```bash
+make dev-down
 ```
 
-2. Install runtime packages on an Ubuntu VPS:
+### حذف کامل دیتابیس محلی
+
+```bash
+make downv
+```
+
+## وارد کردن داده‌ها
+
+ابتدا `data.parquet` (با اولویت) یا `data.csv` به همراه `geoinfo.geojson` را در مسیر درست قرار بده، سپس:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python /app/import_data.py --replace
+```
+
+در سرور:
+
+```bash
+make prod-import
+```
+
+اگر خواستی مسیر دیگری بدهی:
+
+```bash
+python import_data.py --data-dir /path/to/import
+```
+
+### نتیجه import
+
+- ایجاد جدول‌های `datasets` و `features`
+- ساخت جدول زمانی `ts_<dataset_key>`
+- ثبت `min_date` و `max_date`
+- پاک‌سازی کش‌ها
+- پیش‌محاسبه ترندها
+
+## محاسبه ترند
+
+ترندها به صورت full-history برای هر `feature` و هر `index` محاسبه می‌شوند.
+
+- روش: Mann-Kendall
+- شیب: Sen's slope
+- ذخیره: جدول `trend_stats`
+
+### اجرای دستی
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python /app/backend/scripts/precompute_trends.py
+```
+
+فقط یک لایه:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python /app/backend/scripts/precompute_trends.py --level station
+```
+
+فقط یک شاخص:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python /app/backend/scripts/precompute_trends.py --level station --index spi3
+```
+
+## اجرای روی سرور
+
+### 1) نصب وابستگی‌ها
 
 ```bash
 sudo apt update
@@ -66,7 +159,7 @@ sudo apt install -y docker.io docker-compose-plugin nginx certbot python3-certbo
 sudo systemctl enable --now docker nginx
 ```
 
-3. Clone the project and create the production env file:
+### 2) دریافت پروژه
 
 ```bash
 cd /opt
@@ -74,49 +167,67 @@ sudo git clone https://github.com/HydroCodeIR/IranDroughtMonitoring.git
 sudo chown -R "$USER:$USER" IranDroughtMonitoring
 cd IranDroughtMonitoring
 cp .env.prod.example .env.prod
-nano .env.prod
 ```
 
-Set a strong `POSTGRES_PASSWORD`, and keep `DATABASE_URL` in sync with it.
+### 3) تنظیم `.env.prod`
 
-4. Start production containers:
+مقادیر مهم:
+
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL`
+- `CORS_ORIGINS`
+
+نمونه:
+
+```env
+POSTGRES_DB=drought
+POSTGRES_USER=drought
+POSTGRES_PASSWORD=change-me
+DATABASE_URL=postgresql+psycopg2://drought:change-me@db:5432/drought
+CORS_ORIGINS=https://drought.werifum.ir,http://drought.werifum.ir
+```
+
+### 4) اجرای سرویس‌ها
 
 ```bash
 make prod-detached
 ```
 
-The production compose file only exposes the frontend on `127.0.0.1:8080`. PostGIS, Redis, and the backend stay private inside Docker.
+### 5) تنظیم Nginx
 
-5. Install the Nginx host config:
+فایل `deploy/nginx-drought.werifum.ir.conf` را فعال کن:
 
 ```bash
 sudo cp deploy/nginx-drought.werifum.ir.conf /etc/nginx/sites-available/drought.werifum.ir
 sudo ln -s /etc/nginx/sites-available/drought.werifum.ir /etc/nginx/sites-enabled/drought.werifum.ir
+```
+
+سپس:
+
+```bash
 sudo nginx -t
 sudo systemctl reload nginx
 ```
 
-6. Enable HTTPS:
+### 6) فعال‌سازی SSL
 
 ```bash
 sudo certbot --nginx -d drought.werifum.ir
 ```
 
-7. Import or refresh data when needed:
+### 7) بارگذاری داده‌ها
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend python /app/import_data.py --replace
+make prod-import
 ```
 
-Useful checks:
+### 8) محاسبه مجدد ترندها
 
 ```bash
-curl http://127.0.0.1:8080
-docker compose --env-file .env.prod -f docker-compose.prod.yml ps
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f backend
+make prod-precompute-trends
 ```
 
-## API
+## API های اصلی
 
 - `GET /health`
 - `GET /datasets`
@@ -126,26 +237,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f backend
 - `GET /overview?level=<dataset_key>&index=spi3&date=YYYY-MM`
 - `GET /timeseries?region_id=<id>&level=<dataset_key>&index=spi3`
 - `GET /kpi?region_id=<id>&level=<dataset_key>&index=spi3&date=YYYY-MM`
-- `POST /admin/cache/invalidate?prefix=api:`
 
-## Changelog
+## نکته مهم
 
-### Added
-- Env-based settings module.
-- Cache invalidation endpoint and importer-driven invalidation.
-- Backend exception handlers for consistent error payloads.
-
-### Changed
-- `/regions` now uses direct feature listing query.
-- Frontend `onDateChanged()` now refreshes both map and overview together.
-- Frontend fetch error handling parses backend error messages.
-
-### Fixed
-- Reduced stale overview updates during rapid filter/date changes.
-- Removed silent backend fallback on `/regions` failures.
-
-## Compatibility notes
-
-- Existing endpoints are preserved.
-- Error body shape is now standardized; clients reading legacy plain `detail` should switch to `error.message`.
-- Existing cache keys are effectively invalidated (new `api:*` prefixes).
+اگر داده‌ها را تغییر دادی، دوباره `import_data.py --replace` را اجرا کن تا ترندها و کش‌ها با داده جدید هماهنگ شوند.

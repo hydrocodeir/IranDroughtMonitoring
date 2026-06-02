@@ -51,33 +51,34 @@ async function loadMetaForSelectedDataset() {
 
   // Populate indices based on the imported CSV header for this dataset.
   if (Array.isArray(meta.indices) && meta.indices.length) {
+    const sortedIndices = sortIndexOptions(meta.indices);
     indexEl.textContent = '';
     const fragment = document.createDocumentFragment();
-    meta.indices.forEach((idx) => {
+    sortedIndices.forEach((idx) => {
       const m = String(idx).match(/^(spi|spei)(\d+)$/i);
       const label = m ? `${m[1].toUpperCase()}-${m[2]}` : String(idx).toUpperCase();
       const option = document.createElement('option');
-      option.value = String(idx);
+      option.value = String(idx).toLowerCase();
       option.textContent = label;
       fragment.appendChild(option);
     });
     indexEl.appendChild(fragment);
 
-    const preferred = ['spi3', 'spei3', meta.indices[0]];
-    const chosen = preferred.find((v) => meta.indices.includes(v)) || meta.indices[0];
+    const preferred = ['spi3', 'spei3', sortedIndices[0]];
+    const chosen = preferred.find((v) => sortedIndices.includes(v)) || sortedIndices[0];
     if (!hasInitializedIndexSelection) {
       // Initial app load: default to SPI-3 (or SPEI-3 fallback) when present.
       indexEl.value = chosen;
       hasInitializedIndexSelection = true;
     } else {
-      indexEl.value = meta.indices.includes(indexEl.value) ? indexEl.value : chosen;
+      indexEl.value = sortedIndices.includes(indexEl.value) ? indexEl.value : chosen;
     }
   }
 
   if (meta.min_month && meta.max_month) {
     setGlobalBounds(meta.min_month, meta.max_month);
     // If the current date is unset, default to dataset max.
-    if (!dateEl.value) dateEl.value = meta.max_month;
+    if (!normalizeMonthInput(dateEl.value)) setDateValue(meta.max_month);
     // Ensure slider is in sync.
     syncGlobalSliderFromInput();
   }
@@ -116,6 +117,9 @@ let chart;
 let overviewChart;
 let selectedFeature = null;
 let latestMapFeatures = [];
+let currentMapFeatures = [];
+let currentMapIndex = null;
+let currentMapClimateRange = null;
 let currentRangeStart = null;
 let currentRangeEnd = null;
 let mapRequestSeq = 0;
@@ -173,6 +177,7 @@ const globalMaxLabelEl = document.getElementById('globalMaxLabel');
 const stationSliderEl = document.getElementById('stationSlider');
 const stationRangeLabelEl = document.getElementById('stationRangeLabel');
 const stationMonthLabelEl = document.getElementById('stationMonthLabel');
+const panelCountryEl = document.getElementById('panelCountry');
 const syncToMapBtn = document.getElementById('syncToMap');
 const syncToPanelBtn = document.getElementById('syncToPanel');
 const clearSearchBtn = document.getElementById('clearSearch');
@@ -192,6 +197,34 @@ const hoverIndexEl = document.getElementById('hoverIndex');
 const hoverValueEl = document.getElementById('hoverValue');
 const hoverSeverityEl = document.getElementById('hoverSeverity');
 const hoverTrendEl = document.getElementById('hoverTrend');
+
+const MONTH_RE = /^\d{4}-\d{2}$/;
+
+function normalizeMonthInput(value) {
+  const raw = toLatinDigits(value).trim();
+  return MONTH_RE.test(raw) ? raw : '';
+}
+
+function ensureMonthInputValue() {
+  if (!dateEl) return;
+  dateEl.type = 'text';
+  dateEl.inputMode = 'numeric';
+  dateEl.pattern = '\\d{4}-\\d{2}';
+  dateEl.placeholder = 'YYYY-MM';
+  dateEl.autocomplete = 'off';
+  dateEl.spellcheck = false;
+  dateEl.lang = 'en-US';
+  dateEl.value = normalizeMonthInput(dateEl.value || '2020-01') || '2020-01';
+}
+
+function setDateValue(monthValue) {
+  const normalized = normalizeMonthInput(monthValue);
+  if (normalized) dateEl.value = normalized;
+}
+
+function getDateValue() {
+  return normalizeMonthInput(dateEl.value) || '2020-01';
+}
 
 const basemapEl = document.getElementById('basemap');
 const resetViewBtn = document.getElementById('resetView');
@@ -215,15 +248,15 @@ const timelineControls = [
 ];
 
 const levelLabels = {
-  station: 'ایستگاهی',
-  province: 'استانی',
-  county: 'شهرستانی',
-  level1: 'حوزه درجه یک',
-  level2: 'حوزه درجه دو',
-  level3: 'حوزه درجه سه'
+  station: 'Station',
+  province: 'Province',
+  county: 'County',
+  level1: 'Level 1 Basin',
+  level2: 'Level 2 Basin',
+  level3: 'Level 3 Basin'
 };
 
-// Filled from GET /datasets. Used for UI labels (Persian-friendly) while still
+// Filled from GET /datasets. Used for UI labels while still
 // keeping dataset keys stable in URLs.
 const datasetTitles = new Map();
 
@@ -254,6 +287,81 @@ function isBarClimateIndex(indexName) {
   return idx.includes('precip') || idx.includes('pet');
 }
 
+function sortIndexOptions(indices) {
+  const unique = [...new Set((indices || []).map((idx) => String(idx || '').trim().toLowerCase()).filter(Boolean))];
+  const parsed = (value) => {
+    const match = String(value).match(/^(spi|spei)(\d+)$/i);
+    if (!match) return { family: 1, window: Number.MAX_SAFE_INTEGER, label: String(value).toLowerCase() };
+    return {
+      family: match[1].toLowerCase() === 'spi' ? 0 : 1,
+      window: Number(match[2]),
+      label: `${match[1].toLowerCase()}${match[2]}`
+    };
+  };
+  return unique.sort((a, b) => {
+    const pa = parsed(a);
+    const pb = parsed(b);
+    if (pa.window !== pb.window) return pa.window - pb.window;
+    if (pa.family !== pb.family) return pa.family - pb.family;
+    return pa.label.localeCompare(pb.label);
+  });
+}
+
+function getFeatureDisplayName(feature) {
+  return feature?.properties?.station_name
+    || feature?.properties?.name
+    || feature?.properties?.title
+    || feature?.properties?.id
+    || 'Region';
+}
+
+function getFeatureCountry(feature) {
+  return feature?.properties?.country
+    || feature?.properties?.Country
+    || '';
+}
+
+function isPointFeature(feature) {
+  return String(feature?.geometry?.type || '').toLowerCase() === 'point';
+}
+
+function featureMatchesSearch(feature) {
+  const q = String(searchQuery || '').trim().toLowerCase();
+  if (!q) return true;
+  const name = String(getFeatureDisplayName(feature)).toLowerCase();
+  const country = String(getFeatureCountry(feature)).toLowerCase();
+  const province = String(feature?.properties?.province || feature?.properties?.Province || '').toLowerCase();
+  const id = String(feature?.properties?.id || '').toLowerCase();
+  return name.includes(q) || country.includes(q) || province.includes(q) || id.includes(q);
+}
+
+function clusterIcon(count) {
+  return L.divIcon({
+    className: 'station-cluster',
+    html: `<span>${count}</span>`,
+    iconSize: [38, 38],
+    iconAnchor: [19, 19]
+  });
+}
+
+function pointRadiusForFeature(feature, index, climateRange) {
+  const hasValue = feature?.properties?.has_value !== false;
+  if (!hasValue) return 6;
+  if (!isDroughtIndex(index)) return climatePointRadius(Number(feature?.properties?.value), climateRange);
+  return 7;
+}
+
+function pointStyleForFeature(feature, index, climateRange) {
+  const hasValue = feature?.properties?.has_value !== false;
+  return {
+    radius: pointRadiusForFeature(feature, index, climateRange),
+    weight: 1.5,
+    color: '#0f172a',
+    fillColor: hasValue ? severityColor(feature?.properties?.severity) : '#e5e7eb',
+    fillOpacity: hasValue ? 0.95 : 0.2
+  };
+}
+
 
 function populateIndexOptions() {
   const windows = [1, 3, 6, 9, 12, 15, 18, 21, 24];
@@ -275,12 +383,12 @@ function populateIndexOptions() {
 }
 
 const severityLong = {
-  'Normal/Wet': 'نرمال/مرطوب',
-  'D0': 'D0 - خشکی غیرعادی',
-  'D1': 'D1 - خشکسالی متوسط',
-  'D2': 'D2 - خشکسالی شدید',
-  'D3': 'D3 - خشکسالی بسیار شدید',
-  'D4': 'D4 - خشکسالی استثنایی'
+  'Normal/Wet': 'Normal/Wet',
+  'D0': 'D0 - Abnormally Dry',
+  'D1': 'D1 - Moderate Drought',
+  'D2': 'D2 - Severe Drought',
+  'D3': 'D3 - Extreme Drought',
+  'D4': 'D4 - Exceptional Drought'
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
@@ -299,38 +407,39 @@ function classifyTrend(trend, alpha = 0.05) {
   }
 
   if (!Number.isFinite(p) || p > alpha) {
-    return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'بدون روند معنی‌دار', tone: 'neu' };
+    return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'No Significant Trend', tone: 'neu' };
   }
   if (Number.isFinite(slope) && slope > 0) {
-    return { category: 'inc', symbol: '↑', labelEn: 'Increasing Trend (Wetter)', labelFa: 'روند افزایشی (مرطوب‌تر)', tone: 'pos' };
+    return { category: 'inc', symbol: '↑', labelEn: 'Increasing Trend (Wetter)', labelFa: 'Increasing Trend (Wetter)', tone: 'pos' };
   }
   if (Number.isFinite(slope) && slope < 0) {
-    return { category: 'dec', symbol: '↓', labelEn: 'Decreasing Trend (Drier)', labelFa: 'روند کاهشی (خشک‌تر)', tone: 'neg' };
+    return { category: 'dec', symbol: '↓', labelEn: 'Decreasing Trend (Drier)', labelFa: 'Decreasing Trend (Drier)', tone: 'neg' };
   }
-  return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'بدون روند معنی‌دار', tone: 'neu' };
+  return { category: 'none', symbol: '—', labelEn: 'No Significant Trend', labelFa: 'No Significant Trend', tone: 'neu' };
 }
 
 function trendLabelForIndex(indexName, trend) {
   const t = classifyTrend(trend, 0.05);
   if (isDroughtIndex(indexName)) return t;
-  if (t.category === 'inc') return { ...t, labelEn: 'Increasing Trend', labelFa: 'روند افزایشی' };
-  if (t.category === 'dec') return { ...t, labelEn: 'Decreasing Trend', labelFa: 'روند کاهشی' };
+  if (t.category === 'inc') return { ...t, labelEn: 'Increasing Trend', labelFa: 'Increasing Trend' };
+  if (t.category === 'dec') return { ...t, labelEn: 'Decreasing Trend', labelFa: 'Decreasing Trend' };
   return t;
 }
 
-function toPersianDigits(value) {
-  return String(value).replace(/\d/g, (digit) => '۰۱۲۳۴۵۶۷۸۹'[digit]);
+function toLatinDigits(value) {
+  return String(value ?? '')
+    .replace(/[۰-۹]/g, (d) => '0123456789'[d.charCodeAt(0) - 1776])
+    .replace(/[٠-٩]/g, (d) => '0123456789'[d.charCodeAt(0) - 1632]);
 }
 
 function formatNumber(value, digits = 4) {
-  const num = Number(value);
+  const num = Number(toLatinDigits(value));
   if (!Number.isFinite(num)) return '—';
-  const formatted = Math.abs(num).toFixed(digits).replace('.', '٫');
-  return toPersianDigits(num < 0 ? `${formatted}−` : formatted);
+  return num.toFixed(digits);
 }
 
 function formatPValue(value) {
-  const raw = String(value ?? '').trim();
+  const raw = toLatinDigits(value).trim();
   const num = Number(raw);
   if (Number.isFinite(num)) return formatNumber(num, 4);
 
@@ -346,15 +455,14 @@ function formatPValue(value) {
 }
 
 function addMonth(yyyymm, delta) {
-  const [y, m] = yyyymm.split('-').map(Number);
+  const [y, m] = (normalizeMonthInput(yyyymm) || '2020-01').split('-').map(Number);
   const dt = new Date(y, m - 1 + delta, 1);
   return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function toMonthLabel(yyyymm) {
-  const [y, m] = yyyymm.split('-').map(Number);
-  // Gregorian months in Persian (for UI consistency)
-  const labels = ['ژانویه','فوریه','مارس','آوریل','مه','ژوئن','ژوئیه','اوت','سپتامبر','اکتبر','نوامبر','دسامبر'];
+  const [y, m] = (normalizeMonthInput(yyyymm) || '2020-01').split('-').map(Number);
+  const labels = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   return { month: labels[m - 1] || String(m), year: y };
 }
 
@@ -364,7 +472,7 @@ function toChartMonthStart(yyyymm) { return `${yyyymm}-01`; }
 
 // Month parsing helpers (no off-by-one conversions).
 function monthToInt(yyyymm) {
-  const [y, m] = String(yyyymm || '1970-01').split('-').map(Number);
+  const [y, m] = toLatinDigits(yyyymm || '1970-01').split('-').map(Number);
   return (y * 12) + (m - 1);
 }
 
@@ -379,7 +487,7 @@ function clampInt(v, minV, maxV) {
 }
 
 function formatChartDate(value) {
-  const raw = String(value || '');
+  const raw = toLatinDigits(value || '');
   const directMonth = raw.match(/^(\d{4}-\d{2})/);
   if (directMonth) return directMonth[1];
 
@@ -551,12 +659,16 @@ function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   const droughtMode = isDroughtIndex(indexLabel);
   const sev = droughtMode ? (kpi.severity || '-') : '—';
   document.getElementById('panelTitle').textContent = `${featureName}`;
-  const m = panelMonth || dateEl.value;
-  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
+  if (panelCountryEl) {
+    const country = getFeatureCountry(selectedFeature);
+    panelCountryEl.textContent = country ? `Country: ${country}` : '';
+  }
+  const m = panelMonth || getDateValue();
+  document.getElementById('panelSubtitle').textContent = `Selected date: ${String(m).replace(/-/g, '/')}`;
   const metricLabelEl = document.getElementById('mainMetricLabel');
-  if (metricLabelEl) metricLabelEl.textContent = `مقدار ${formatIndexLabel(indexLabel)}`;
+  if (metricLabelEl) metricLabelEl.textContent = `${formatIndexLabel(indexLabel)} value`;
   document.getElementById('mainMetricValue').textContent = formatNumber(kpi.latest);
-  document.getElementById('severityBadge').textContent = droughtMode ? (severityLong[sev] || sev) : 'متغیر اقلیمی';
+  document.getElementById('severityBadge').textContent = droughtMode ? (severityLong[sev] || sev) : 'Climate variable';
   if (droughtMode) applySeverityStyle(sev);
 
   document.getElementById('tauVal').textContent = formatNumber(kpi.trend?.tau);
@@ -567,7 +679,7 @@ function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   const t = trendLabelForIndex(indexLabel, kpi.trend);
   const trendStatusEl = document.getElementById('trendStatus');
   if (trendStatusEl) {
-    trendStatusEl.textContent = `${t.symbol} ${t.labelFa}`;
+    trendStatusEl.textContent = `${t.symbol} ${t.labelEn}`;
     trendStatusEl.classList.toggle('trend-pos', t.tone === 'pos');
     trendStatusEl.classList.toggle('trend-neg', t.tone === 'neg');
     trendStatusEl.classList.toggle('trend-neu', t.tone === 'neu');
@@ -581,18 +693,22 @@ function renderKPI(kpi, featureName, indexLabel, panelMonth) {
   }
 }
 
-function renderPanelLoading(featureName = 'ناحیه', panelMonth = null) {
+function renderPanelLoading(featureName = 'Region', panelMonth = null) {
   document.getElementById('panelTitle').textContent = `${featureName}`;
-  const m = panelMonth || dateEl.value;
-  document.getElementById('panelSubtitle').textContent = `تاریخ انتخاب شده: ${toPersianDigits(String(m).replace(/-/g, '/'))}`;
+  if (panelCountryEl) {
+    const country = getFeatureCountry(selectedFeature);
+    panelCountryEl.textContent = country ? `Country: ${country}` : '';
+  }
+  const m = panelMonth || getDateValue();
+  document.getElementById('panelSubtitle').textContent = `Selected date: ${String(m).replace(/-/g, '/')}`;
   const metricLabelEl = document.getElementById('mainMetricLabel');
-  if (metricLabelEl) metricLabelEl.textContent = `مقدار ${formatIndexLabel(indexEl.value)}`;
+  if (metricLabelEl) metricLabelEl.textContent = `${formatIndexLabel(indexEl.value)} value`;
   document.getElementById('mainMetricValue').textContent = '...';
-  document.getElementById('severityBadge').textContent = 'درحال بارگذاری';
+  document.getElementById('severityBadge').textContent = 'Loading';
   const trendStatusEl = document.getElementById('trendStatus');
   const trendNoteEl = document.getElementById('trendNote');
   if (trendStatusEl) trendStatusEl.textContent = '—';
-  if (trendNoteEl) trendNoteEl.textContent = 'در حال بارگذاری...';
+  if (trendNoteEl) trendNoteEl.textContent = 'Loading...';
   ['tauVal', 'pVal', 'senVal'].forEach((id) => {
     document.getElementById(id).textContent = '...';
   });
@@ -666,17 +782,17 @@ function setGlobalBounds(minMonth, maxMonth) {
   globalMaxInt = monthToInt(maxMonth);
 
   // Clamp the current global month into bounds.
-  const cur = monthToInt(dateEl.value);
+  const cur = monthToInt(getDateValue());
   const clamped = clampInt(cur, globalMinInt, globalMaxInt);
-  dateEl.value = intToMonth(clamped);
+  setDateValue(intToMonth(clamped));
 
-  if (globalMinLabelEl) globalMinLabelEl.textContent = toPersianDigits(String(minMonth).replace(/-/g, '/'));
-  if (globalMaxLabelEl) globalMaxLabelEl.textContent = toPersianDigits(String(maxMonth).replace(/-/g, '/'));
+  if (globalMinLabelEl) globalMinLabelEl.textContent = toLatinDigits(String(minMonth).replace(/-/g, '/'));
+  if (globalMaxLabelEl) globalMaxLabelEl.textContent = toLatinDigits(String(maxMonth).replace(/-/g, '/'));
 
   if (globalSliderEl) {
     globalSliderEl.min = 0;
     globalSliderEl.max = Math.max(0, globalMaxInt - globalMinInt);
-    globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(dateEl.value) - globalMinInt));
+    globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(getDateValue()) - globalMinInt));
     paintRange(globalSliderEl);
   }
 }
@@ -694,7 +810,7 @@ function paintRange(rangeEl) {
 
 function syncGlobalSliderFromInput() {
   if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
-  globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(dateEl.value) - globalMinInt));
+  globalSliderEl.value = String(sliderUiFromOffset(globalSliderEl, monthToInt(getDateValue()) - globalMinInt));
   paintRange(globalSliderEl);
 }
 
@@ -702,7 +818,7 @@ function syncGlobalInputFromSlider() {
   if (!globalSliderEl || globalMinMonth == null || globalMaxMonth == null) return;
   const offset = sliderOffsetFromUi(globalSliderEl);
   const m = intToMonth(globalMinInt + offset);
-  dateEl.value = m;
+  setDateValue(m);
   paintRange(globalSliderEl);
 }
 
@@ -806,8 +922,8 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
 
   const markLineData = [
     ...(droughtMode ? DROUGHT_THRESHOLD_LINES.map((line) => ({ ...line })) : []),
-    { xAxis: selectedDate, name: 'نقشه' },
-    { xAxis: panelDate, name: 'ناحیه' }
+    { xAxis: selectedDate, name: 'Map' },
+    { xAxis: panelDate, name: 'Panel' }
   ];
 
   const endValue = parsedData[parsedData.length - 1]?.[0];
@@ -820,7 +936,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
     animation: true,
     animationDuration: 0,
     animationDurationUpdate: 0,
-    textStyle: { fontFamily: 'Vazirmatn' },
+    textStyle: { fontFamily: 'Segoe UI, Roboto, Arial, sans-serif' },
     title: {
       text: '',
       left: 0,
@@ -909,7 +1025,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       max: droughtMode ? 2 : 'dataMax',
       axisLabel: {
         color: '#6b7280',
-        formatter: (value) => value
+        formatter: (value) => toLatinDigits(value)
       },
       splitLine: {
         show: true,
@@ -1016,22 +1132,20 @@ function formatIndexLabel(value) {
 
 function updateSubtitles() {
   const levelLabel = (datasetTitles.get(levelEl.value) || levelLabels[levelEl.value] || levelEl.value);
-  const dateLabel = toPersianDigits(String(dateEl.value).replace(/-/g, '/'));
+  const dateLabel = toLatinDigits(String(getDateValue()).replace(/-/g, '/'));
   const idxLabel = formatIndexLabel(indexEl.value);
-  const text = `${idxLabel} • ${dateLabel} • سطح: ${levelLabel}`;
+  const text = `${idxLabel} • ${dateLabel} • Level: ${levelLabel}`;
   if (mapSubtitleEl) mapSubtitleEl.textContent = text;
   if (overviewSubtitleEl) overviewSubtitleEl.textContent = text;
 
   const legendTitle = document.getElementById('legendTitle');
   if (legendTitle) {
-    legendTitle.textContent = isDroughtIndex(indexEl.value)
-      ? `راهنمای شدت خشکسالی`
-      : `راهنمای شدت خشکسالی`;
+    legendTitle.textContent = 'Drought severity guide';
   }
   const trendIncLabel = document.getElementById('legendTrendInc');
   const trendDecLabel = document.getElementById('legendTrendDec');
-  if (trendIncLabel) trendIncLabel.textContent = isDroughtIndex(indexEl.value) ? 'روند افزایشی (مرطوب‌تر)' : 'روند افزایشی';
-  if (trendDecLabel) trendDecLabel.textContent = isDroughtIndex(indexEl.value) ? 'روند کاهشی (خشک‌تر)' : 'روند کاهشی';
+  if (trendIncLabel) trendIncLabel.textContent = isDroughtIndex(indexEl.value) ? 'Increasing trend (wetter)' : 'Increasing trend';
+  if (trendDecLabel) trendDecLabel.textContent = isDroughtIndex(indexEl.value) ? 'Decreasing trend (drier)' : 'Decreasing trend';
 }
 
 function ensureOverviewChart() {
@@ -1053,7 +1167,7 @@ function renderOverviewFromCounts(payload) {
     const max = formatNumber(payload?.max);
     chartInstance.setOption({
       animation: false,
-      xAxis: { type: 'category', data: ['کمینه', 'میانگین', 'بیشینه'] },
+      xAxis: { type: 'category', data: ['Min', 'Mean', 'Max'] },
       yAxis: { type: 'value' },
       tooltip: { trigger: 'axis' },
       series: [{
@@ -1066,10 +1180,10 @@ function renderOverviewFromCounts(payload) {
     }, true);
     if (overviewStatsEl) {
       overviewStatsEl.innerHTML = `
-        <div class="text-muted small mb-2">دارای داده: ${toPersianDigits(withValue)} • فاقد داده: ${toPersianDigits(missing)}</div>
-        <div class="stat-row"><div class="stat-left"><span>کمینه</span></div><div>${toPersianDigits(min)}</div></div>
-        <div class="stat-row"><div class="stat-left"><span>میانگین</span></div><div>${toPersianDigits(mean)}</div></div>
-        <div class="stat-row"><div class="stat-left"><span>بیشینه</span></div><div>${toPersianDigits(max)}</div></div>
+        <div class="text-muted small mb-2">With data: ${withValue} • Missing: ${missing}</div>
+        <div class="stat-row"><div class="stat-left"><span>Min</span></div><div>${min}</div></div>
+        <div class="stat-row"><div class="stat-left"><span>Mean</span></div><div>${mean}</div></div>
+        <div class="stat-row"><div class="stat-left"><span>Max</span></div><div>${max}</div></div>
       `;
     }
     return;
@@ -1077,12 +1191,12 @@ function renderOverviewFromCounts(payload) {
 
   const order = ['Normal/Wet', 'D0', 'D1', 'D2', 'D3', 'D4'];
   const labelsFa = {
-    'Normal/Wet': 'نرمال/مرطوب',
-    'D0': 'خشکی غیرعادی',
-    'D1': 'خشکسالی متوسط',
-    'D2': 'خشکسالی شدید',
-    'D3': 'خشکسالی بسیار شدید',
-    'D4': 'خشکسالی استثنایی'
+    'Normal/Wet': 'Normal/Wet',
+    'D0': 'Abnormally Dry',
+    'D1': 'Moderate Drought',
+    'D2': 'Severe Drought',
+    'D3': 'Extreme Drought',
+    'D4': 'Exceptional Drought'
   };
 
   const counts = payload?.counts || {};
@@ -1102,7 +1216,7 @@ function renderOverviewFromCounts(payload) {
       trigger: 'item',
       formatter: (p) => {
         const percent = total ? (p.value / total) * 100 : 0;
-        return `${p.marker}${p.name}<br/>تعداد: ${toPersianDigits(p.value)}<br/>درصد: ${toPersianDigits(percent.toFixed(1).replace('.', '٫'))}٪`;
+        return `${p.marker}${p.name}<br/>Count: ${p.value}<br/>Percent: ${percent.toFixed(1)}%`;
       }
     },
     legend: {
@@ -1110,7 +1224,7 @@ function renderOverviewFromCounts(payload) {
       left: 'center',
       itemWidth: 12,
       itemHeight: 12,
-      textStyle: { color: '#475467', fontFamily: 'Vazirmatn' }
+      textStyle: { color: '#475467', fontFamily: 'Segoe UI, Roboto, Arial, sans-serif' }
     },
     series: [
       {
@@ -1133,7 +1247,7 @@ function renderOverviewFromCounts(payload) {
   if (overviewStatsEl) {
     const missing = payload?.missing ?? 0;
     overviewStatsEl.innerHTML = total
-      ? (`<div class="text-muted small mb-2">ایستگاه‌ها: ${toPersianDigits(payload?.with_value ?? total)} • دادهٔ ناموجود: ${toPersianDigits(missing)}</div>` +
+      ? (`<div class="text-muted small mb-2">Stations with data: ${payload?.with_value ?? total} • Missing: ${missing}</div>` +
       order.map((k) => {
         const c = counts[k] || 0;
         const pct = total ? (c / total) * 100 : 0;
@@ -1144,11 +1258,11 @@ function renderOverviewFromCounts(payload) {
               <span class="swatch" style="background:${droughtColors[k] || '#94a3b8'}"></span>
               <span>${label}</span>
             </div>
-            <div>${toPersianDigits(c)} عدد --- ${toPersianDigits(pct.toFixed(1).replace('.', '٫'))}٪</div>
+            <div>${c} --- ${pct.toFixed(1)}%</div>
           </div>
         `;
       }).join(''))
-      : '<div class="text-muted small">برای این انتخاب داده‌ای در دسترس نیست.</div>';
+      : '<div class="text-muted small">No data available for this selection.</div>';
   }
 }
 
@@ -1159,26 +1273,26 @@ function addMapLegend() {
     const div = L.DomUtil.create('div', 'map-legend collapsed');
     div.id = 'mapLegendBox';
     const items = [
-      ['NW', 'نرمال/مرطوب', '#86efac'],
-      ['D0', 'خشکی غیرعادی', '#fde047'],
-      ['D1', 'خشکسالی متوسط', '#fbbf24'],
-      ['D2', 'خشکسالی شدید', '#f97316'],
-      ['D3', 'خشکسالی بسیار شدید', '#dc2626'],
-      ['D4', 'خشکسالی استثنایی', '#7f1d1d'],
-      ['—', 'بدون داده', '#e5e7eb']
+      ['NW', 'Normal/Wet', '#86efac'],
+      ['D0', 'Abnormally Dry', '#fde047'],
+      ['D1', 'Moderate Drought', '#fbbf24'],
+      ['D2', 'Severe Drought', '#f97316'],
+      ['D3', 'Extreme Drought', '#dc2626'],
+      ['D4', 'Exceptional Drought', '#7f1d1d'],
+      ['—', 'No data', '#e5e7eb']
     ];
     div.innerHTML = `
       <div class="head">
-        <h6 id="legendTitle">راهنمای شدت خشکسالی</h6>
-        <button id="legendToggle" class="toggle" type="button" aria-label="نمایش راهنما">▸</button>
+        <h6 id="legendTitle">Drought severity guide</h6>
+        <button id="legendToggle" class="toggle" type="button" aria-label="Show legend">▸</button>
       </div>
       <div class="legend-body" id="legendBody">
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
         <div class="legend-sep"></div>
-        <div class="legend-subtitle">راهنمای روند (کل دوره)</div>
-        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">روند افزایشی (مرطوب‌تر)</span></div>
-        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">روند کاهشی (خشک‌تر)</span></div>
-        <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">بدون روند معنی‌دار</span></div>
+        <div class="legend-subtitle">Trend guide (full period)</div>
+        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">Increasing trend (wetter)</span></div>
+        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">Decreasing trend (drier)</span></div>
+        <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>
       </div>`;
 
     // Prevent map interactions while using the legend.
@@ -1196,7 +1310,7 @@ function addMapLegend() {
       legendBox.classList.toggle('collapsed');
       const collapsed = legendBox.classList.contains('collapsed');
       toggle.textContent = collapsed ? '▸' : '▾';
-      toggle.setAttribute('aria-label', collapsed ? 'نمایش راهنما' : 'جمع‌کردن راهنما');
+      toggle.setAttribute('aria-label', collapsed ? 'Show legend' : 'Collapse legend');
     });
   }, 100);
 }
@@ -1208,7 +1322,7 @@ function setHoverInfo(feature, indexName) {
     hoverBoxEl.setAttribute('aria-hidden', 'true');
     return;
   }
-  const name = feature?.properties?.name || '—';
+  const name = getFeatureDisplayName(feature);
   const sev = feature?.properties?.severity || '—';
   const hasValue = feature?.properties?.has_value !== false && feature?.properties?.value != null;
   const value = hasValue ? formatNumber(feature?.properties?.value) : '—';
@@ -1216,13 +1330,13 @@ function setHoverInfo(feature, indexName) {
   hoverNameEl.textContent = name;
   const droughtMode = isDroughtIndex(indexName);
   const sevText = droughtMode
-    ? ((sev === 'No Data' || !hasValue) ? 'بدون داده' : (severityLong[sev] || sev))
+    ? ((sev === 'No Data' || !hasValue) ? 'No data' : (severityLong[sev] || sev))
     : '—';
   
   hoverIndexEl.textContent = `${formatIndexLabel(indexName)}`;
   hoverValueEl.textContent = value;
   hoverSeverityEl.textContent = hasValue ? sevText : '—';
-  hoverTrendEl.textContent = hasValue ? `${t.symbol} ${t.labelFa}` : '—';
+  hoverTrendEl.textContent = hasValue ? `${t.symbol} ${t.labelEn}` : '—';
   
   hoverBoxEl.classList.remove('is-hidden');
   hoverBoxEl.setAttribute('aria-hidden', 'false');
@@ -1244,29 +1358,128 @@ function climatePointRadius(value, range) {
   return 4 + (t * 10);
 }
 
-function applySearchFilter() {
-  if (!geoLayer) return;
-  const q = String(searchQuery || '').trim().toLowerCase();
-  geoLayer.eachLayer((layer) => {
-    const name = String(layer?.feature?.properties?.name || '').toLowerCase();
-    const hit = !q || name.includes(q);
-    layer._searchMatch = hit;
+function buildPolygonLayer(features, index) {
+  const defaultPolyStyle = (f) => ({
+    color: '#334155',
+    weight: 1,
+    opacity: (f?.properties?.has_value === false) ? 0.35 : 1,
+    fillOpacity: (f?.properties?.has_value === false) ? 0.12 : 0.78,
+    fillColor: (f?.properties?.has_value === false) ? '#e5e7eb' : severityColor(f?.properties?.severity)
+  });
 
-    // Visually fade non-matching features.
-    if (layer.setStyle) {
-      const hv = layer?.feature?.properties?.has_value !== false;
-      const baseFill = hv ? 0.78 : 0.12;
-      const baseOp = hv ? 1 : 0.35;
-      layer.setStyle({
-        opacity: hit ? baseOp : 0.15,
-        fillOpacity: hit ? baseFill : 0.05
+  const hoverPolyStyle = {
+    color: '#0f172a',
+    weight: 2,
+    fillOpacity: 0.9
+  };
+
+  return L.geoJSON({ type: 'FeatureCollection', features }, {
+    style: defaultPolyStyle,
+    onEachFeature: (feature, layer) => {
+      layer.on('mouseover', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        if (layer.setStyle) layer.setStyle(hoverPolyStyle);
+        if (layer.bringToFront) layer.bringToFront();
+        setHoverInfo(feature, index);
+      });
+
+      layer.on('mouseout', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
+        setHoverInfo(null);
+      });
+
+      layer.on('click', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        onRegionClick(feature);
       });
     }
-
-    // Disable interaction for non-matching features.
-    const el = layer.getElement?.();
-    if (el) el.style.pointerEvents = hit ? 'auto' : 'none';
   });
+}
+
+function buildPointLayer(features, index) {
+  const cellSize = map.getZoom() >= 11 ? 26 : map.getZoom() >= 9 ? 34 : map.getZoom() >= 7 ? 44 : 56;
+  const buckets = new Map();
+  const visibleBounds = map.getBounds();
+
+  for (const feature of features) {
+    const coords = feature?.geometry?.coordinates || [];
+    if (coords.length < 2) continue;
+    const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
+    if (!visibleBounds.contains(latlng)) continue;
+    const projected = map.project(latlng, map.getZoom());
+    const key = `${Math.floor(projected.x / cellSize)}:${Math.floor(projected.y / cellSize)}`;
+    let bucket = buckets.get(key);
+    if (!bucket) {
+      bucket = { features: [], latSum: 0, lngSum: 0, bounds: null };
+      buckets.set(key, bucket);
+    }
+    bucket.features.push(feature);
+    bucket.latSum += latlng.lat;
+    bucket.lngSum += latlng.lng;
+    bucket.bounds = bucket.bounds ? bucket.bounds.extend(latlng) : L.latLngBounds(latlng, latlng);
+  }
+
+  const group = L.layerGroup();
+  buckets.forEach((bucket) => {
+    if (!bucket.features.length) return;
+    if (bucket.features.length === 1) {
+      const feature = bucket.features[0];
+      const coords = feature?.geometry?.coordinates || [];
+      const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
+      const marker = L.circleMarker(latlng, pointStyleForFeature(feature, index, currentMapClimateRange));
+      marker.on('mouseover', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        setHoverInfo(feature, index);
+      });
+      marker.on('mouseout', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        setHoverInfo(null);
+      });
+      marker.on('click', () => {
+        if (searchQuery && !featureMatchesSearch(feature)) return;
+        onRegionClick(feature);
+      });
+      group.addLayer(marker);
+      return;
+    }
+
+    const latlng = L.latLng(bucket.latSum / bucket.features.length, bucket.lngSum / bucket.features.length);
+    const clusterMarker = L.marker(latlng, { icon: clusterIcon(bucket.features.length), keyboard: false, riseOnHover: true });
+    clusterMarker.on('click', () => {
+      const pad = Math.max(0.15, 0.5 - (bucket.features.length * 0.01));
+      const maxZoom = Math.min((map.getMaxZoom?.() ?? 18), map.getZoom() + 2);
+      map.fitBounds(bucket.bounds.pad(pad), { maxZoom });
+    });
+    clusterMarker.bindTooltip(`${bucket.features.length} stations`, { direction: 'top', sticky: true });
+    group.addLayer(clusterMarker);
+  });
+
+  return group;
+}
+
+function renderCurrentMapFeatures() {
+  if (!geoLayer) {
+    geoLayer = L.layerGroup().addTo(map);
+  }
+  geoLayer.clearLayers();
+  setHoverInfo(null);
+
+  const features = (currentMapFeatures || []).filter(featureMatchesSearch);
+  const polygons = features.filter((feature) => !isPointFeature(feature));
+  const points = features.filter((feature) => isPointFeature(feature));
+
+  if (polygons.length) {
+    geoLayer.addLayer(buildPolygonLayer(polygons, currentMapIndex));
+  }
+
+  if (points.length) {
+    geoLayer.addLayer(buildPointLayer(points, currentMapIndex));
+  }
+}
+
+function applySearchFilter() {
+  renderCurrentMapFeatures();
 }
 
 async function updatePanelForMonth(newMonth) {
@@ -1277,12 +1490,12 @@ async function updatePanelForMonth(newMonth) {
 
   if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
   paintRange(stationSliderEl);
-  if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(monthStr.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = monthStr; }
+  if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `Selected month: ${monthStr.replace(/-/g, '/')}`; stationMonthLabelEl.dataset.month = monthStr; }
 
   const regionId = selectedFeature?.properties?.id;
   const indexName = indexEl.value;
   const levelName = levelEl.value;
-  const featureName = selectedFeature?.properties?.name || currentPanelFeatureName || 'ناحیه';
+  const featureName = getFeatureDisplayName(selectedFeature) || currentPanelFeatureName || 'Region';
 
   const reqId = ++panelRequestSeq;
   if (panelAbortController) panelAbortController.abort();
@@ -1305,11 +1518,11 @@ async function updatePanelForMonth(newMonth) {
     stationMonthInt = clampInt(monthToInt(effective), stationMinInt, stationMaxInt);
     if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
     paintRange(stationSliderEl);
-    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effective.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = effective; }
+    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `Selected month: ${effective.replace(/-/g, '/')}`; stationMonthLabelEl.dataset.month = effective; }
   }
 
   renderKPI(kpi, featureName, indexName, effective);
-  renderChart(currentPanelSeries, indexName, dateEl.value, effective);
+  renderChart(currentPanelSeries, indexName, getDateValue(), effective);
   togglePanelSpinner(false);
 }
 
@@ -1317,7 +1530,7 @@ async function loadMap() {
   if (!appIsReady) return;
   const level = levelEl.value;
   const index = indexEl.value;
-  const date = dateEl.value;
+  const date = getDateValue();
   const bounds = map.getBounds();
   const bbox = [
     bounds.getWest().toFixed(4),
@@ -1343,7 +1556,7 @@ async function loadMap() {
     // Adjacent-month prefetch can explode cache keys while the user is panning.
   } catch (err) {
     if (String(err?.name) !== 'AbortError') {
-      mapSubtitleEl.textContent = `خطا در بارگذاری نقشه: ${err.message || 'Unknown error'}`;
+      mapSubtitleEl.textContent = `Map loading error: ${err.message || 'Unknown error'}`;
     }
   }
 
@@ -1351,61 +1564,12 @@ async function loadMap() {
 
   toggleMapLoading(false);
   latestMapFeatures = data.features || [];
-  const climateRange = isDroughtIndex(index) ? null : computeClimateValueRange(latestMapFeatures);
+  currentMapFeatures = latestMapFeatures.slice();
+  currentMapIndex = index;
+  currentMapClimateRange = isDroughtIndex(index) ? null : computeClimateValueRange(currentMapFeatures);
   if (geoLayer) map.removeLayer(geoLayer);
-
-  const defaultPolyStyle = (f) => ({
-    color: '#334155',
-    weight: 1,
-    opacity: (f?.properties?.has_value === false) ? 0.35 : 1,
-    fillOpacity: (f?.properties?.has_value === false) ? 0.12 : 0.78,
-    fillColor: (f?.properties?.has_value === false) ? '#e5e7eb' : severityColor(f?.properties?.severity)
-  });
-
-  const hoverPolyStyle = {
-    color: '#0f172a',
-    weight: 2,
-    fillOpacity: 0.9
-  };
-
-  geoLayer = L.geoJSON(data, {
-    style: defaultPolyStyle,
-    pointToLayer: (feature, latlng) => L.circleMarker(latlng, {
-      radius: (feature?.properties?.has_value === false)
-        ? 6
-        : (isDroughtIndex(index)
-          ? 7
-          : climatePointRadius(Number(feature?.properties?.value), climateRange)),
-      weight: 1.5,
-      color: '#0f172a',
-      fillColor: (feature?.properties?.has_value === false) ? '#e5e7eb' : severityColor(feature?.properties?.severity),
-      fillOpacity: (feature?.properties?.has_value === false) ? 0.2 : 0.95
-    }),
-    onEachFeature: (feature, layer) => {
-      // Search mode: only matching features should respond to hover/click.
-      layer._searchMatch = true;
-      layer.on('mouseover', () => {
-        if (searchQuery && !layer._searchMatch) return;
-        if (layer.setStyle) layer.setStyle(hoverPolyStyle);
-        if (layer.bringToFront) layer.bringToFront();
-        setHoverInfo(feature, index);
-      });
-
-      layer.on('mouseout', () => {
-        if (searchQuery && !layer._searchMatch) return;
-        if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
-        setHoverInfo(null);
-      });
-
-      layer.on('click', () => {
-        if (searchQuery && !layer._searchMatch) return;
-        onRegionClick(feature);
-      });
-    }
-  }).addTo(map);
-
-  // Apply active search filter to the new layer.
-  applySearchFilter();
+  geoLayer = L.layerGroup().addTo(map);
+  renderCurrentMapFeatures();
 
   // Initial default selection: choose one feature on first page load.
   if (!selectedFeature && latestMapFeatures.length) {
@@ -1424,7 +1588,7 @@ async function loadOverview() {
   if (!appIsReady) return;
   const level = levelEl.value;
   const idx = indexEl.value;
-  const date = dateEl.value;
+  const date = getDateValue();
   const key = `${level}|${idx}|${date}`;
   const reqId = ++overviewRequestSeq;
   if (overviewAbortController) overviewAbortController.abort();
@@ -1441,7 +1605,7 @@ async function loadOverview() {
   } catch (err) {
     if (String(err?.name) === 'AbortError') return;
     // The map can still function even if overview fails.
-    updateOverviewSubtitle(`خطا در بارگذاری خلاصه: ${err.message || 'Unknown error'}`);
+    updateOverviewSubtitle(`Overview loading error: ${err.message || 'Unknown error'}`);
   }
 }
 
@@ -1451,7 +1615,7 @@ async function onRegionClick(feature) {
     const regionId = feature?.properties?.id;
     const indexName = indexEl.value;
     const levelName = levelEl.value;
-    const featureName = feature?.properties?.name || 'ناحیه';
+    const featureName = getFeatureDisplayName(feature);
     currentPanelFeatureName = featureName;
     setPanelOpen(true);
 
@@ -1464,7 +1628,7 @@ async function onRegionClick(feature) {
     if (panelAbortController) panelAbortController.abort();
     panelAbortController = new AbortController();
 
-    renderPanelLoading(featureName, stationMonthInt != null ? intToMonth(stationMonthInt) : dateEl.value);
+    renderPanelLoading(featureName, stationMonthInt != null ? intToMonth(stationMonthInt) : getDateValue());
 
     const tsKey = `${regionId}|${levelName}|${indexName}|full`;
     const tsPayload = await fetchCached(
@@ -1497,7 +1661,7 @@ async function onRegionClick(feature) {
         trend: { tau: NaN, p_value: '-', sen_slope: NaN, trend: '—' }
       }, featureName, indexName, null);
       setNoDataMessage(true, 'No data for this selection');
-      renderChart([], indexName, dateEl.value, dateEl.value);
+      renderChart([], indexName, getDateValue(), getDateValue());
       togglePanelSpinner(false);
       return;
     }
@@ -1505,7 +1669,7 @@ async function onRegionClick(feature) {
     // Configure panel (feature) slider to the FULL available range.
     stationMinInt = monthToInt(minM);
     stationMaxInt = monthToInt(maxM);
-    const base = (stationMonthInt != null) ? stationMonthInt : monthToInt(dateEl.value);
+    const base = (stationMonthInt != null) ? stationMonthInt : monthToInt(getDateValue());
     stationMonthInt = clampInt(base, stationMinInt, stationMaxInt);
 
     if (stationSliderEl) {
@@ -1520,7 +1684,7 @@ async function onRegionClick(feature) {
     }
 
     const panelMonth = intToMonth(stationMonthInt);
-    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(panelMonth.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = panelMonth; }
+    if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `Selected month: ${panelMonth.replace(/-/g, '/')}`; stationMonthLabelEl.dataset.month = panelMonth; }
 
     // KPI uses panel month (NOT global month). The backend auto-adjusts if missing.
     const kpiKey = `${regionId}|${levelName}|${indexName}|${panelMonth}`;
@@ -1540,12 +1704,12 @@ async function onRegionClick(feature) {
       if (stationMinInt != null && stationMaxInt != null) {
         stationMonthInt = clampInt(effInt, stationMinInt, stationMaxInt);
         if (stationSliderEl) stationSliderEl.value = String(sliderUiFromOffset(stationSliderEl, stationMonthInt - stationMinInt));
-        if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `ماه انتخابی: ${toPersianDigits(effectiveMonth.replace(/-/g, '/'))}`; stationMonthLabelEl.dataset.month = effectiveMonth; }
+        if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `Selected month: ${effectiveMonth.replace(/-/g, '/')}`; stationMonthLabelEl.dataset.month = effectiveMonth; }
       }
     }
 
     renderKPI(kpi, featureName, indexName, effectiveMonth);
-    renderChart(series, indexName, dateEl.value, effectiveMonth);
+    renderChart(series, indexName, getDateValue(), effectiveMonth);
     togglePanelSpinner(false);
   } catch (err) {
     console.error('onRegionClick error:', err);
@@ -1568,8 +1732,8 @@ async function onDateChanged() {
   // Do NOT refetch the panel on global date changes.
   // The panel has its own stationMonth (slider) and only needs the chart marker updated.
   if (panelEl.classList.contains('open') && selectedFeature && currentPanelSeries.length) {
-    const panelMonth = stationMonthInt != null ? intToMonth(stationMonthInt) : dateEl.value;
-    renderChart(currentPanelSeries, indexEl.value, dateEl.value, panelMonth);
+    const panelMonth = stationMonthInt != null ? intToMonth(stationMonthInt) : getDateValue();
+    renderChart(currentPanelSeries, indexEl.value, getDateValue(), panelMonth);
   }
 }
 
@@ -1625,7 +1789,22 @@ function setupEvents() {
     await onDateChanged();
   });
 
+  dateEl.addEventListener('input', () => {
+    const normalized = toLatinDigits(dateEl.value).replace(/[^\d-]/g, '').slice(0, 7);
+    if (dateEl.value !== normalized) dateEl.value = normalized;
+  });
+
   dateEl.addEventListener('change', () => {
+    const normalized = normalizeMonthInput(dateEl.value);
+    if (!normalized) {
+      setDateValue(globalMaxMonth || globalMinMonth || '2020-01');
+    } else {
+      setDateValue(normalized);
+    }
+    if (globalMinMonth && globalMaxMonth) {
+      const clamped = clampInt(monthToInt(getDateValue()), globalMinInt, globalMaxInt);
+      setDateValue(intToMonth(clamped));
+    }
     lastPanelQueryKey = null;
     syncGlobalSliderFromInput();
     debouncedDateChanged();
@@ -1640,30 +1819,30 @@ function setupEvents() {
   }
 
   document.getElementById('prevMonth').addEventListener('click', () => {
-    if (globalMinMonth && dateEl.value <= globalMinMonth) return;
+    if (globalMinMonth && getDateValue() <= globalMinMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = addMonth(dateEl.value, -1);
+    setDateValue(addMonth(getDateValue(), -1));
     syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('nextMonth').addEventListener('click', () => {
-    if (globalMaxMonth && dateEl.value >= globalMaxMonth) return;
+    if (globalMaxMonth && getDateValue() >= globalMaxMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = addMonth(dateEl.value, 1);
+    setDateValue(addMonth(getDateValue(), 1));
     syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('toStart').addEventListener('click', () => {
     if (!globalMinMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = globalMinMonth;
+    setDateValue(globalMinMonth);
     syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
   document.getElementById('toEnd').addEventListener('click', () => {
     if (!globalMaxMonth) return;
     lastPanelQueryKey = null;
-    dateEl.value = globalMaxMonth;
+    setDateValue(globalMaxMonth);
     syncGlobalSliderFromInput();
     debouncedDateChanged();
   });
@@ -1681,7 +1860,7 @@ function setupEvents() {
   if (syncToMapBtn) {
     syncToMapBtn.addEventListener('click', () => {
       if (stationMinInt == null || stationMaxInt == null) return;
-      const target = clampInt(monthToInt(dateEl.value), stationMinInt, stationMaxInt);
+      const target = clampInt(monthToInt(getDateValue()), stationMinInt, stationMaxInt);
       updatePanelForMonth(intToMonth(target));
     });
   }
@@ -1690,7 +1869,7 @@ function setupEvents() {
     syncToPanelBtn.addEventListener('click', () => {
       const panelMonth = stationMonthLabelEl?.dataset?.month;
       if (!panelMonth) return;
-      dateEl.value = panelMonth;
+      setDateValue(panelMonth);
       lastPanelQueryKey = null;
       syncGlobalSliderFromInput();
       debouncedDateChanged();
@@ -1825,6 +2004,7 @@ function setupEvents() {
 
 async function initApp() {
   // Provide a fast local fallback if the backend endpoints aren't ready.
+  ensureMonthInputValue();
   populateIndexOptions();
   addMapLegend();
   setupEvents();
@@ -1836,11 +2016,11 @@ async function initApp() {
   } catch (err) {
     // Backend not ready or dataset not imported yet.
     if (mapSubtitleEl) {
-      mapSubtitleEl.textContent = 'داده‌ای وارد نشده است. لطفاً import_data.py را اجرا کنید.';
+      mapSubtitleEl.textContent = 'No imported data found. Please run import_data.py.';
     }
     // Fallback: at least have a "station" option so UI doesn't break.
     if (!levelEl.options.length) {
-      levelEl.innerHTML = '<option value="station">ایستگاهی</option>';
+      levelEl.innerHTML = '<option value="station">Station</option>';
     }
   }
 

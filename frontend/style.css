@@ -463,6 +463,25 @@ input[type="range"]:disabled {
   font-size: 0.82rem;
 }
 
+.station-cluster {
+  background: rgba(15, 23, 42, 0.92);
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  border-radius: 999px;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.22);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.station-cluster span { font-size: 0.88rem; }
+
+#panelCountry {
+  min-height: 1rem;
+  font-size: 0.8rem;
+}
+
 /* ---------- Timeline card ---------- */
 
 .timeline-card .ui-card__body { padding-bottom: var(--space-2); }

@@ -24,14 +24,6 @@
   --app-header-h: 72px;
 }
 
-@font-face {
-  font-family: Vazirmatn;
-  src: url(../fonts/Vazirmatn-FD-Regular.woff2)format("woff2");
-  font-weight: 100;
-  font-style: normal;
-  font-display: swap
-}
-
 * {
   box-sizing: border-box;
 }
@@ -46,7 +38,7 @@ body {
   background: var(--bg);
   color: var(--text);
   overflow: hidden;
-  font-family: "Vazirmatn", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  font-family: "Segoe UI", Roboto, Arial, system-ui, -apple-system, sans-serif;
 }
 
 .skip-link {
@@ -983,7 +975,7 @@ input[type="range"]:disabled {
 /* ---------- Leaflet: enterprise styling ---------- */
 
 .leaflet-container {
-  font: 13px/1.2 "Vazirmatn", system-ui, sans-serif;
+  font: 13px/1.2 "Segoe UI", Roboto, Arial, system-ui, sans-serif;
   background: #f1f5f9;
 }
 

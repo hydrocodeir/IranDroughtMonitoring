@@ -326,6 +326,7 @@ def fetch_features_geojson(
           COALESCE(f.name, f.feature_id) AS name,
           ST_AsGeoJSON(f.geom, 6) AS geom_json,
           (f.props ->> 'Province') AS province,
+          COALESCE(f.props ->> 'Country', f.props ->> 'country') AS country,
           ts.{idx_sql} AS value
         FROM features f
         LEFT JOIN {ts} ts
@@ -361,7 +362,9 @@ def fetch_features_geojson(
         props = {
             "id": str(r.feature_id),
             "name": str(r.name),
+            "station_name": str(r.name),
             "province": r.province,
+            "country": r.country,
             "value": _json_safe_float(r.value),
         }
         features.append({"type": "Feature", "geometry": geom, "properties": props})

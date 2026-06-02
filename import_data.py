@@ -1,4 +1,4 @@
-"""One-time importer: one or more (data.csv + geoinfo.geojson) pairs ➜ PostGIS.
+"""One-time importer: one or more (data.parquet|data.csv + geoinfo.geojson) pairs ➜ PostGIS.
 
 Why this exists
 --------------
@@ -11,9 +11,11 @@ Multi-layer support
 You can import multiple spatial levels by placing multiple pairs under
 `data/import/<dataset_key>/`:
 
-  data/import/station/data.csv
+  data/import/station/data.parquet  # preferred
+  data/import/station/data.csv      # fallback
   data/import/station/geoinfo.geojson
 
+  data/import/province/data.parquet
   data/import/province/data.csv
   data/import/province/geoinfo.geojson
 
@@ -22,6 +24,7 @@ Backward compatibility
 If you only have a single pair and place it directly in `data/import/`, this
 script imports it as dataset_key="station":
 
+  data/import/data.parquet
   data/import/data.csv
   data/import/geoinfo.geojson
 
@@ -29,6 +32,7 @@ Performance notes
 -----------------
 * CSV ingestion is **chunked** and streamed into Postgres using COPY.
   This avoids loading a 50MB+ CSV into memory.
+* Parquet files are supported and take priority over CSV when both exist.
 * GeoJSON is usually much smaller than CSV. We load it once, then insert in
   batches.
 * Each dataset gets its own **wide** time-series table (ts_<dataset_key>)
@@ -76,26 +80,71 @@ def month_start(dt: pd.Timestamp) -> str:
     return f"{dt.year:04d}-{dt.month:02d}-01"
 
 
+def resolve_data_file(folder: Path) -> Path | None:
+    """Return preferred data file for a dataset folder.
+
+    Priority:
+      1) data.parquet
+      2) data.csv
+    """
+    parquet_path = folder / "data.parquet"
+    if parquet_path.exists():
+        return parquet_path
+    csv_path = folder / "data.csv"
+    if csv_path.exists():
+        return csv_path
+    return None
+
+
 def discover_dataset_dirs(base_dir: Path) -> list[tuple[str, Path]]:
     """Discover dataset folders.
 
     Returns: list of (dataset_key, folder)
     """
     # Backward compatible single dataset
+    direct_parquet = base_dir / "data.parquet"
     direct_csv = base_dir / "data.csv"
     direct_geo = base_dir / "geoinfo.geojson"
-    if direct_csv.exists() and direct_geo.exists():
+    if direct_geo.exists() and (direct_parquet.exists() or direct_csv.exists()):
         return [("station", base_dir)]
 
     pairs: list[tuple[str, Path]] = []
     for child in sorted(base_dir.iterdir()):
         if not child.is_dir() or child.name.startswith("."):
             continue
-        csv_path = child / "data.csv"
+        data_path = resolve_data_file(child)
         geo_path = child / "geoinfo.geojson"
-        if csv_path.exists() and geo_path.exists():
+        if data_path and geo_path.exists():
             pairs.append((safe_dataset_key(child.name), child))
     return pairs
+
+
+def read_header_from_data_file(data_path: Path) -> list[str]:
+    suffix = data_path.suffix.lower()
+    if suffix == ".parquet":
+        df = pd.read_parquet(data_path)
+        return normalize_header(list(df.columns))
+    if suffix == ".csv":
+        with data_path.open("r", encoding="utf-8", newline="") as f:
+            return normalize_header(next(csv.reader(f)))
+    raise ValueError(f"Unsupported data file: {data_path.name}. Use data.parquet or data.csv")
+
+
+def iter_timeseries_chunks(data_path: Path, chunksize: int) -> Any:
+    suffix = data_path.suffix.lower()
+    if suffix == ".csv":
+        yield from pd.read_csv(data_path, chunksize=chunksize, low_memory=False)
+        return
+    if suffix == ".parquet":
+        frame = pd.read_parquet(data_path)
+        total = len(frame)
+        if total == 0:
+            return
+        step = max(1, int(chunksize))
+        for start in range(0, total, step):
+            yield frame.iloc[start : start + step].copy()
+        return
+    raise ValueError(f"Unsupported data file: {data_path.name}. Use data.parquet or data.csv")
 
 
 def detect_id_column(header: list[str]) -> str:
@@ -299,7 +348,7 @@ def ingest_features(dataset_key: str, geojson_path: Path, id_hint: str | None = 
 def ingest_timeseries(
     *,
     dataset_key: str,
-    csv_path: Path,
+    data_path: Path,
     id_col: str,
     date_info: dict[str, str],
     index_columns: list[str],
@@ -318,7 +367,7 @@ def ingest_timeseries(
     conn = engine.raw_connection()
     try:
         with conn.cursor() as cur:
-            reader = pd.read_csv(csv_path, chunksize=chunksize, low_memory=False)
+            reader = iter_timeseries_chunks(data_path, chunksize)
             for i, chunk in enumerate(reader, start=1):
                 if chunk.empty:
                     continue
@@ -326,7 +375,7 @@ def ingest_timeseries(
                 chunk.columns = normalize_header(list(chunk.columns))
                 col_map_lower = {c.lower(): c for c in chunk.columns}
                 if id_col.lower() not in col_map_lower:
-                    raise ValueError(f"CSV missing id column {id_col!r}")
+                    raise ValueError(f"{data_path.name} missing id column {id_col!r}")
 
                 # Normalize ID column to feature_id
                 chunk["feature_id"] = chunk[col_map_lower[id_col.lower()]].astype("string")
@@ -335,13 +384,13 @@ def ingest_timeseries(
                 if date_info["mode"] == "date":
                     dt_col = col_map_lower.get(date_info["date"].lower())
                     if not dt_col:
-                        raise ValueError("CSV missing date column")
+                        raise ValueError(f"{data_path.name} missing date column")
                     chunk["date"] = pd.to_datetime(chunk[dt_col], errors="coerce").map(month_start)
                 elif date_info["mode"] == "ym":
                     y_col = col_map_lower.get(date_info["year"].lower())
                     m_col = col_map_lower.get(date_info["month"].lower())
                     if not y_col or not m_col:
-                        raise ValueError("CSV missing year/month columns")
+                        raise ValueError(f"{data_path.name} missing year/month columns")
                     y = pd.to_numeric(chunk[y_col], errors="coerce")
                     m = pd.to_numeric(chunk[m_col], errors="coerce")
                     chunk["date"] = [
@@ -351,7 +400,7 @@ def ingest_timeseries(
                 elif date_info["mode"] == "yyyymm":
                     ym_col = col_map_lower.get(date_info["yyyymm"].lower())
                     if not ym_col:
-                        raise ValueError("CSV missing yyyymm column")
+                        raise ValueError(f"{data_path.name} missing yyyymm column")
                     raw = chunk[ym_col].astype("string")
                     chunk["date"] = raw.map(lambda s: f"{str(s)[:4]}-{str(s)[4:6]}-01" if s and len(str(s)) >= 6 else "")
                 else:
@@ -434,17 +483,16 @@ def precompute_dataset_trends(dataset_key: str) -> None:
         print(f"[{dataset_key}] precomputed trends for {idx}: {count:,} features")
 
 def import_one_dataset(dataset_key: str, folder: Path, replace: bool, chunksize: int) -> None:
-    csv_path = folder / "data.csv"
+    data_path = resolve_data_file(folder)
     geo_path = folder / "geoinfo.geojson"
-    if not csv_path.exists() or not geo_path.exists():
-        raise FileNotFoundError(f"Missing data.csv/geoinfo.geojson in {folder}")
+    if not data_path or not geo_path.exists():
+        raise FileNotFoundError(f"Missing data.parquet|data.csv and/or geoinfo.geojson in {folder}")
 
-    with csv_path.open("r", encoding="utf-8", newline="") as f:
-        header = normalize_header(next(csv.reader(f)))
+    header = read_header_from_data_file(data_path)
     id_col = detect_id_column(header)
     date_info = detect_date_columns(header)
     if not date_info:
-        raise SystemExit("CSV must have either 'date' or ('year' and 'month') columns")
+        raise SystemExit(f"{data_path.name} must have either 'date' or ('year' and 'month') columns")
 
     lower = [c.lower() for c in header]
     # Index columns = everything except id/date fields
@@ -485,10 +533,10 @@ def import_one_dataset(dataset_key: str, folder: Path, replace: bool, chunksize:
             {"k": dataset_key, "g": geom_type},
         )
 
-    print(f"[{dataset_key}] importing time series CSV (chunked COPY)...")
+    print(f"[{dataset_key}] importing time series from {data_path.name} (chunked COPY)...")
     inserted = ingest_timeseries(
         dataset_key=dataset_key,
-        csv_path=csv_path,
+        data_path=data_path,
         id_col=id_col,
         date_info=date_info,
         index_columns=index_cols,
@@ -521,11 +569,15 @@ def main() -> None:
     datasets = discover_dataset_dirs(base)
     if not datasets:
         raise SystemExit(
-            "No dataset pairs found. Place files as either:\n"
+            "No dataset files found under data-dir. Nothing to import.\n"
+            "Expected one of:\n"
+            "  data/import/data.parquet + data/import/geoinfo.geojson\n"
             "  data/import/data.csv + data/import/geoinfo.geojson\n"
             "or multi-layer:\n"
+            "  data/import/<dataset_key>/data.parquet + geoinfo.geojson\n"
             "  data/import/<dataset_key>/data.csv + geoinfo.geojson"
         )
+        return
 
     print("Creating base schema...")
     create_base_schema(replace=bool(args.replace))

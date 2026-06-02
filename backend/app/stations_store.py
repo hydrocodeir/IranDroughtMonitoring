@@ -145,6 +145,7 @@ def fetch_stations_geojson(
           ST_X(s.geom) AS lon,
           ST_Y(s.geom) AS lat,
           (s.props ->> 'Province') AS province,
+          COALESCE(s.props ->> 'Country', s.props ->> 'country') AS country,
           ts.{idx_sql} AS value
         FROM stations s
         LEFT JOIN station_timeseries ts
@@ -177,7 +178,9 @@ def fetch_stations_geojson(
         props = {
             "id": str(r.station_id),
             "name": str(r.name),
+            "station_name": str(r.name),
             "province": r.province,
+            "country": r.country,
             "value": float(r.value) if r.value is not None else None,
         }
         features.append(
