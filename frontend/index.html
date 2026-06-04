@@ -170,11 +170,11 @@
             <div class="ui-card__body">
               <div class="timeline-row">
                 <div class="timeline-left">
-                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="Jump to latest month">Latest</button>
-                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="Next month">Next</button>
-                  <input id="date" type="text" lang="en-US" inputmode="numeric" pattern="\d{4}-\d{2}" placeholder="YYYY-MM" autocomplete="off" spellcheck="false" class="form-control form-control-sm timeline-date" value="2020-01" />
-                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="Previous month">Prev</button>
                   <button id="toStart" class="btn btn-sm btn-light" type="button" title="Move to start">Start</button>
+                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="Previous month">Prev</button>
+                  <input id="date" type="text" lang="en-US" inputmode="numeric" pattern="\d{4}-\d{2}" placeholder="YYYY-MM" autocomplete="off" spellcheck="false" class="form-control form-control-sm timeline-date" value="2020-01" />
+                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="Next month">Next</button>
+                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="Jump to latest month">Latest</button>
                 </div>
                 <div class="timeline-right d-flex align-items-center gap-2">
                   <span class="small text-muted">Global map time</span>
@@ -476,7 +476,7 @@ curl "http://localhost:8000/kpi?region_id=10001&level=station&index=precip&date=
             <div>
               <div class="notice-hero__title">Small server, big dataset</div>
               <p class="mb-0">
-                This dashboard is currently running on a very small VPS to keep the project online. We have optimized it as much as possible, but some maps and analyses may still load a little slowly. Thank you for your patience.
+                This dashboard is currently running on a very small VPS to keep the project online. We have optimized it as much as possible, but some maps and analyses may still load a little slowly. For the smoothest experience, the dashboard performs better on desktop than on mobile. Thank you for your patience.
               </p>
             </div>
           </div>

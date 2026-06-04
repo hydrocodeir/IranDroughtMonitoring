@@ -1591,7 +1591,7 @@ function updateSubtitles() {
   const levelLabel = (datasetTitles.get(levelEl.value) || levelLabels[levelEl.value] || levelEl.value);
   const dateLabel = toLatinDigits(String(getDateValue()).replace(/-/g, '/'));
   const idxLabel = formatIndexLabel(indexEl.value);
-  const text = `${idxLabel} • ${dateLabel} • Level: ${levelLabel}`;
+  const text = `${idxLabel} • ${dateLabel} • Dataset: ${levelLabel}`;
   if (mapSubtitleEl) mapSubtitleEl.textContent = text;
   if (overviewSubtitleEl) overviewSubtitleEl.textContent = text;
   renderMapLegend(indexEl.value);
