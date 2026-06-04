@@ -113,6 +113,7 @@ const BASEMAPS = {
 let activeBasemap = BASEMAPS.carto.addTo(map);
 
 let geoLayer;
+let selectedOverlayLayer = L.layerGroup().addTo(map);
 let chart;
 let overviewChart;
 let selectedFeature = null;
@@ -148,6 +149,8 @@ let stationMonthInt = null;
 
 let searchQuery = '';
 let showAllStationMarkers = false;
+let currentSearchSuggestions = [];
+let activeSearchSuggestionIndex = -1;
 
 // Cached panel series for the currently selected feature (used to update chart
 // markers when the global map month changes without reloading the whole panel).
@@ -199,6 +202,7 @@ const hoverValueEl = document.getElementById('hoverValue');
 const hoverSeverityEl = document.getElementById('hoverSeverity');
 const hoverTrendEl = document.getElementById('hoverTrend');
 const markerModeToggleEl = document.getElementById('markerModeToggle');
+const searchSuggestionsEl = document.getElementById('searchSuggestions');
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
@@ -353,6 +357,136 @@ function featureMatchesSearch(feature) {
   return name.includes(q) || country.includes(q) || province.includes(q) || id.includes(q);
 }
 
+function featureMatchesQuery(feature, query) {
+  const q = String(query || '').trim().toLowerCase();
+  if (!q) return true;
+  const name = String(getFeatureDisplayName(feature)).toLowerCase();
+  const country = String(getFeatureCountry(feature)).toLowerCase();
+  const province = String(feature?.properties?.province || feature?.properties?.Province || '').toLowerCase();
+  const id = getFeatureId(feature).toLowerCase();
+  return name.includes(q) || country.includes(q) || province.includes(q) || id.includes(q);
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function highlightMatchText(value, query) {
+  const text = String(value ?? '');
+  const q = String(query || '').trim();
+  if (!q) return escapeHtml(text);
+  const lower = text.toLowerCase();
+  const needle = q.toLowerCase();
+  const idx = lower.indexOf(needle);
+  if (idx < 0) return escapeHtml(text);
+  const before = escapeHtml(text.slice(0, idx));
+  const match = escapeHtml(text.slice(idx, idx + q.length));
+  const after = escapeHtml(text.slice(idx + q.length));
+  return `${before}<mark>${match}</mark>${after}`;
+}
+
+function collectSearchSuggestions(query, limit = 8) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const matches = (currentMapFeatures || []).filter((feature) => featureMatchesQuery(feature, q));
+  const scored = matches.map((feature) => {
+    const name = getFeatureDisplayName(feature);
+    const id = getFeatureId(feature);
+    const nameLower = name.toLowerCase();
+    const idLower = id.toLowerCase();
+    const qLower = q.toLowerCase();
+    const starts = nameLower.startsWith(qLower) || idLower.startsWith(qLower) ? 0 : 1;
+    return { feature, name, id, starts };
+  });
+  scored.sort((a, b) => a.starts - b.starts || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  return scored.slice(0, limit);
+}
+
+function hideSearchSuggestions() {
+  if (!searchSuggestionsEl) return;
+  searchSuggestionsEl.classList.add('d-none');
+  searchSuggestionsEl.innerHTML = '';
+  currentSearchSuggestions = [];
+  activeSearchSuggestionIndex = -1;
+}
+
+function renderSearchSuggestions(query, preferredIndex = 0) {
+  if (!searchSuggestionsEl) return;
+  const items = collectSearchSuggestions(query);
+  currentSearchSuggestions = items;
+  activeSearchSuggestionIndex = items.length ? clampInt(preferredIndex, 0, items.length - 1) : -1;
+  if (!items.length) {
+    hideSearchSuggestions();
+    return;
+  }
+
+  searchSuggestionsEl.innerHTML = items.map((item, index) => {
+    const active = index === activeSearchSuggestionIndex ? ' is-active' : '';
+    return `
+      <button type="button" class="search-suggestion${active}" role="option" aria-selected="${index === activeSearchSuggestionIndex}">
+        <span class="search-suggestion__name">${highlightMatchText(item.name, query)}</span>
+        <span class="search-suggestion__id">${highlightMatchText(item.id || '—', query)}</span>
+      </button>
+    `;
+  }).join('');
+  searchSuggestionsEl.classList.remove('d-none');
+
+  searchSuggestionsEl.querySelectorAll('.search-suggestion').forEach((btn, index) => {
+    btn.addEventListener('mouseenter', () => {
+      activeSearchSuggestionIndex = index;
+      renderSearchSuggestions(query, index);
+    });
+    btn.addEventListener('click', () => {
+      const item = currentSearchSuggestions[index];
+      if (item) selectSearchSuggestion(item.feature);
+    });
+  });
+}
+
+function focusFeatureOnMap(feature) {
+  if (!feature) return;
+  const geo = L.geoJSON(feature);
+  const bounds = geo.getBounds();
+  if (bounds && bounds.isValid && bounds.isValid()) {
+    const pad = isPointFeature(feature) ? 0.5 : 0.2;
+    map.fitBounds(bounds.pad(pad), { maxZoom: 9 });
+  }
+  geo.remove();
+}
+
+function syncSelectedFeatureOverlay() {
+  if (!selectedOverlayLayer) {
+    selectedOverlayLayer = L.layerGroup().addTo(map);
+  }
+  selectedOverlayLayer.clearLayers();
+  const feature = findSelectedFeatureFromCurrentMap();
+  if (!feature) return;
+  const overlay = isPointFeature(feature)
+    ? buildPointMarker(feature, currentMapIndex)
+    : buildPolygonLayer([feature], currentMapIndex);
+  if (overlay) {
+    selectedOverlayLayer.addLayer(overlay);
+    if (overlay.bringToFront) overlay.bringToFront();
+  }
+}
+
+function selectSearchSuggestion(feature) {
+  if (!feature) return;
+  const name = getFeatureDisplayName(feature);
+  searchQuery = String(name || '').trim();
+  if (document.getElementById('search')) {
+    document.getElementById('search').value = searchQuery;
+  }
+  hideSearchSuggestions();
+  focusFeatureOnMap(feature);
+  onRegionClick(feature);
+}
+
 function clusterVisuals(count) {
   if (count >= 1000) return { size: 58, bg: '#f97316', ring: '#fdba74', text: '#431407' };
   if (count >= 250) return { size: 52, bg: '#fb923c', ring: '#fed7aa', text: '#4a1d09' };
@@ -397,18 +531,22 @@ function pointRadiusForFeature(feature, index, climateRange) {
 
 function pointStyleForFeature(feature, index, climateRange) {
   const selected = isSelectedFeature(feature);
+  const searched = searchQuery && featureMatchesSearch(feature);
   const hasValue = feature?.properties?.has_value !== false;
   const value = Number(feature?.properties?.value);
   const fillColor = hasValue ? mapValueColor(value, index) : '#e5e7eb';
   const baseRadius = pointRadiusForFeature(feature, index, climateRange);
   return {
-    radius: selected ? Math.max(baseRadius + 3, 10) : baseRadius,
-    weight: selected ? 3.5 : 1.5,
-    color: selected ? '#1d4ed8' : fillColor,
-    fillColor: selected ? '#f8fafc' : fillColor,
-    fillOpacity: selected ? 1 : (hasValue ? 0.95 : 0.2),
+    radius: selected ? Math.max(baseRadius + 3, 10) : (searched ? baseRadius + 1.5 : baseRadius),
+    weight: selected ? 3.5 : (searched ? 2.5 : 1.5),
+    color: selected ? '#1d4ed8' : (searched ? '#0f766e' : fillColor),
+    fillColor: selected ? '#f8fafc' : (searched ? '#ccfbf1' : fillColor),
+    fillOpacity: selected ? 1 : (searched ? 1 : (hasValue ? 0.95 : 0.2)),
     opacity: 1,
-    className: selected ? 'station-marker--selected' : ''
+    className: [
+      selected ? 'station-marker--selected' : '',
+      searched && !selected ? 'station-marker--search-match' : ''
+    ].filter(Boolean).join(' ')
   };
 }
 
@@ -1556,14 +1694,15 @@ function climatePointRadius(value, range) {
 function buildPolygonLayer(features, index) {
   const defaultPolyStyle = (f) => {
     const selected = isSelectedFeature(f);
+    const searched = searchQuery && featureMatchesSearch(f);
     const hasValue = f?.properties?.has_value !== false;
     const baseColor = hasValue ? mapValueColor(f?.properties?.value, index) : '#94a3b8';
     return {
-      color: selected ? '#1d4ed8' : baseColor,
-      weight: selected ? 3 : 1,
+      color: selected ? '#1d4ed8' : (searched ? '#0f766e' : baseColor),
+      weight: selected ? 3 : (searched ? 2.2 : 1),
       opacity: selected ? 1 : (hasValue ? 1 : 0.35),
-      fillOpacity: selected ? 0.88 : (hasValue ? 0.78 : 0.12),
-      fillColor: selected ? '#dbeafe' : (hasValue ? baseColor : '#e5e7eb')
+      fillOpacity: selected ? 0.88 : (searched ? 0.9 : (hasValue ? 0.78 : 0.12)),
+      fillColor: selected ? '#dbeafe' : (searched ? '#ccfbf1' : (hasValue ? baseColor : '#e5e7eb'))
     };
   };
 
@@ -1614,18 +1753,12 @@ function buildPointLayer(features, index) {
   const cellSize = map.getZoom() >= 11 ? 26 : map.getZoom() >= 9 ? 34 : map.getZoom() >= 7 ? 44 : 56;
   const buckets = new Map();
   const visibleBounds = map.getBounds();
-  const selectedId = getFeatureId(selectedFeature);
-  const selectedPoints = [];
 
   for (const feature of features) {
     const coords = feature?.geometry?.coordinates || [];
     if (coords.length < 2) continue;
     const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
     if (!visibleBounds.contains(latlng)) continue;
-    if (selectedId && getFeatureId(feature) === selectedId) {
-      selectedPoints.push(feature);
-      continue;
-    }
     const projected = map.project(latlng, map.getZoom());
     const key = `${Math.floor(projected.x / cellSize)}:${Math.floor(projected.y / cellSize)}`;
     let bucket = buckets.get(key);
@@ -1670,11 +1803,6 @@ function buildPointLayer(features, index) {
     group.addLayer(clusterMarker);
   });
 
-  for (const feature of selectedPoints) {
-    const marker = buildPointMarker(feature, index);
-    if (marker) group.addLayer(marker);
-  }
-
   return group;
 }
 
@@ -1704,6 +1832,14 @@ function renderCurrentMapFeatures() {
 
   if (points.length) {
     geoLayer.addLayer(buildPointLayer(points, currentMapIndex));
+  }
+
+  syncSelectedFeatureOverlay();
+  const searchInput = document.getElementById('search');
+  if (searchInput && document.activeElement === searchInput) {
+    renderSearchSuggestions(searchQuery, activeSearchSuggestionIndex >= 0 ? activeSearchSuggestionIndex : 0);
+  } else {
+    hideSearchSuggestions();
   }
 }
 
@@ -1796,8 +1932,7 @@ async function loadMap() {
   currentMapFeatures = latestMapFeatures.slice();
   currentMapIndex = index;
   currentMapClimateRange = isDroughtIndex(index) ? null : computeMagnitudeValueRange(currentMapFeatures);
-  if (geoLayer) map.removeLayer(geoLayer);
-  geoLayer = L.layerGroup().addTo(map);
+  if (!geoLayer) geoLayer = L.layerGroup().addTo(map);
   renderCurrentMapFeatures();
 
   // Initial default selection: choose one feature on first page load.
@@ -1841,7 +1976,7 @@ async function loadOverview() {
 async function onRegionClick(feature) {
   try {
     selectedFeature = feature;
-    renderCurrentMapFeatures();
+    syncSelectedFeatureOverlay();
     const regionId = getFeatureId(feature);
     const indexName = indexEl.value;
     const levelName = levelEl.value;
@@ -2153,7 +2288,34 @@ function setupEvents() {
   if (searchEl) {
     searchEl.addEventListener('input', (e) => {
       searchQuery = e.target.value.trim();
+      renderSearchSuggestions(searchQuery);
       applySearchFilterDebounced();
+    });
+    searchEl.addEventListener('focus', () => {
+      renderSearchSuggestions(searchEl.value, activeSearchSuggestionIndex >= 0 ? activeSearchSuggestionIndex : 0);
+    });
+    searchEl.addEventListener('keydown', (e) => {
+      if (!currentSearchSuggestions.length) return;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        activeSearchSuggestionIndex = (activeSearchSuggestionIndex + 1) % currentSearchSuggestions.length;
+        renderSearchSuggestions(searchEl.value, activeSearchSuggestionIndex);
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        activeSearchSuggestionIndex = (activeSearchSuggestionIndex - 1 + currentSearchSuggestions.length) % currentSearchSuggestions.length;
+        renderSearchSuggestions(searchEl.value, activeSearchSuggestionIndex);
+      } else if (e.key === 'Enter') {
+        const item = currentSearchSuggestions[activeSearchSuggestionIndex] || currentSearchSuggestions[0];
+        if (item) {
+          e.preventDefault();
+          selectSearchSuggestion(item.feature);
+        }
+      } else if (e.key === 'Escape') {
+        hideSearchSuggestions();
+      }
+    });
+    searchEl.addEventListener('blur', () => {
+      setTimeout(() => hideSearchSuggestions(), 120);
     });
   }
 
@@ -2161,6 +2323,7 @@ function setupEvents() {
     clearSearchBtn.addEventListener('click', () => {
       searchQuery = '';
       if (searchEl) searchEl.value = '';
+      hideSearchSuggestions();
       applySearchFilter();
     });
   }

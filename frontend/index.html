@@ -50,11 +50,14 @@
             </div>
             <div class="ui-card__body">
               <label class="form-label" for="search">Search station</label>
-              <div class="search-row">
-                <input id="search" placeholder="Example: Station name or ID" class="form-control form-control-sm" />
-                <button id="clearSearch" class="btn btn-sm" type="button" title="Clear search">
-                  <i class="bi bi-trash3 text-danger"></i>
-                </button>
+              <div class="search-box">
+                <div class="search-row">
+                  <input id="search" placeholder="Example: Station name or ID" class="form-control form-control-sm" autocomplete="off" />
+                  <button id="clearSearch" class="btn btn-sm" type="button" title="Clear search">
+                    <i class="bi bi-trash3 text-danger"></i>
+                  </button>
+                </div>
+                <div id="searchSuggestions" class="search-suggestions d-none" role="listbox" aria-label="Search suggestions"></div>
               </div>
               <div class="form-hint">Find stations by name, country, province, or station ID. Non-matching stations are hidden from the current map view.</div>
             </div>
@@ -108,7 +111,7 @@
                   <label class="form-check-label" for="markerModeToggle">Show all markers</label>
                 </div>
                 <button id="resetView" class="btn btn-sm btn-light" type="button" title="Reset map view">
-                  Reset
+                  Reset map
                 </button>
               </div>
             </div>
@@ -117,8 +120,16 @@
               <div id="map" aria-label="Map" role="application" aria-busy="false"></div>
 
               <div id="mapLoading" class="map-loading" aria-live="polite">
-                <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
-                <span>Loading map...</span>
+                <div class="map-loading__inner">
+                  <div class="map-loading__title">Loading map data</div>
+                  <div class="skeleton skeleton--line"></div>
+                  <div class="skeleton skeleton--line skeleton--short"></div>
+                  <div class="skeleton skeleton--chips">
+                    <span class="skeleton skeleton--chip"></span>
+                    <span class="skeleton skeleton--chip"></span>
+                    <span class="skeleton skeleton--chip"></span>
+                  </div>
+                </div>
               </div>
 
               <div id="mapHover" class="map-hover is-hidden" aria-hidden="true">
@@ -149,15 +160,15 @@
             <div class="ui-card__body">
               <div class="timeline-row">
                 <div class="timeline-left">
-                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="Move to end">‹‹</button>
-                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="Next month">‹</button>
+                  <button id="toEnd" class="btn btn-sm btn-light" type="button" title="Jump to latest month">Latest</button>
+                  <button id="nextMonth" class="btn btn-sm btn-light" type="button" title="Next month">Next</button>
                   <input id="date" type="text" lang="en-US" inputmode="numeric" pattern="\d{4}-\d{2}" placeholder="YYYY-MM" autocomplete="off" spellcheck="false" class="form-control form-control-sm timeline-date" value="2020-01" />
-                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="Previous month">›</button>
-                  <button id="toStart" class="btn btn-sm btn-light" type="button" title="Move to start">››</button>
+                  <button id="prevMonth" class="btn btn-sm btn-light" type="button" title="Previous month">Prev</button>
+                  <button id="toStart" class="btn btn-sm btn-light" type="button" title="Move to start">Start</button>
                 </div>
                 <div class="timeline-right d-flex align-items-center gap-2">
                   <span class="small text-muted">Global map time</span>
-                  <button id="syncToPanel" class="btn btn-sm btn-outline-dark" type="button" title="Sync map date to panel date">Sync to panel</button>
+                  <button id="syncToPanel" class="btn btn-sm btn-outline-primary" type="button" title="Sync map date to panel date">Sync panel</button>
                 </div>
               </div>
 
@@ -248,7 +259,7 @@
                   <input id="stationSlider" type="range" min="0" max="0" step="1" value="0" disabled />
                   <div class="station-slider__row">
                     <span id="stationMonthLabel" class="small">—</span>
-                    <button id="syncToMap" class="btn btn-sm btn-outline-dark" type="button" title="Sync panel date to map date">Sync to map</button>
+                    <button id="syncToMap" class="btn btn-sm btn-primary" type="button" title="Sync panel date to map date">Sync map</button>
                   </div>
                 </div>
                 <div class="chart-wrap" aria-label="Time series chart"><div id="tsChart"></div></div>
@@ -268,7 +279,17 @@
                   </div>
                 </div>
 
-                <div id="panelSpinner" class="panel-spinner d-none"><div class="spinner-border spinner-border-sm text-primary" role="status"></div><span>Loading...</span></div>
+                <div id="panelSpinner" class="panel-spinner d-none" aria-live="polite">
+                  <div class="panel-spinner__shell">
+                    <div class="panel-spinner__title skeleton skeleton--line"></div>
+                    <div class="panel-spinner__meta skeleton skeleton--line skeleton--short"></div>
+                    <div class="panel-spinner__grid">
+                      <div class="skeleton skeleton--card"></div>
+                      <div class="skeleton skeleton--card"></div>
+                      <div class="skeleton skeleton--card"></div>
+                    </div>
+                  </div>
+                </div>
 
                 <div id="kpiGrid" class="kpi-grid kpi-grid--trend" hx-swap="innerHTML">
                   <div class="kpi-card"><small>Kendall's τ</small><strong id="tauVal">—</strong></div>

@@ -236,8 +236,62 @@ body {
   align-items: center;
 }
 
+.search-box {
+  position: relative;
+}
+
 .search-row #search {
   flex: 1 1 auto;
+}
+
+.search-suggestions {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 6px);
+  z-index: 30;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.search-suggestion {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 0;
+  background: transparent;
+  text-align: start;
+  padding: 9px 12px;
+  border-bottom: 1px solid rgba(228, 231, 236, 0.8);
+}
+
+.search-suggestion:last-child {
+  border-bottom: 0;
+}
+
+.search-suggestion:hover,
+.search-suggestion.is-active {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.search-suggestion__name {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.search-suggestion__id {
+  font-size: 0.76rem;
+  color: var(--muted);
+}
+
+.search-suggestion mark {
+  background: rgba(245, 158, 11, 0.25);
+  color: inherit;
+  padding: 0 2px;
+  border-radius: 3px;
 }
 
 .global-slider {
@@ -495,6 +549,18 @@ input[type="range"]:disabled {
   display: flex;
 }
 
+.map-loading__inner {
+  width: min(250px, 100%);
+  display: grid;
+  gap: 8px;
+}
+
+.map-loading__title {
+  font-size: 0.86rem;
+  font-weight: 800;
+  color: var(--text);
+}
+
 .station-cluster {
   background: transparent;
   border: none;
@@ -510,6 +576,15 @@ input[type="range"]:disabled {
 
 .station-marker--selected {
   filter: drop-shadow(0 0 8px rgba(37, 99, 235, 0.45));
+}
+
+.station-marker--selected circle,
+.station-marker--selected path {
+  stroke-width: 3px;
+}
+
+.station-marker--search-match {
+  filter: drop-shadow(0 0 4px rgba(15, 118, 110, 0.35));
 }
 
 .map-hover {
@@ -1001,11 +1076,73 @@ input[type="range"]:disabled {
 
 .panel-spinner {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 10px;
   margin: 10px 0;
   color: var(--muted-2);
   font-size: 0.85rem;
+}
+
+.panel-spinner__shell {
+  width: 100%;
+  display: grid;
+  gap: 8px;
+}
+
+.panel-spinner__title,
+.panel-spinner__meta {
+  height: 12px;
+  border-radius: 999px;
+}
+
+.panel-spinner__meta {
+  width: 68%;
+}
+
+.panel-spinner__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(90deg, #e5e7eb 25%, #f8fafc 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.2s ease-in-out infinite;
+}
+
+.skeleton--line {
+  height: 12px;
+  border-radius: 999px;
+}
+
+.skeleton--short {
+  width: 72%;
+}
+
+.skeleton--chips {
+  display: flex;
+  gap: 8px;
+  background: transparent;
+  animation: none;
+}
+
+.skeleton--chip {
+  width: 52px;
+  height: 22px;
+  border-radius: 999px;
+}
+
+.skeleton--card {
+  height: 54px;
+  border-radius: 12px;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* ---------- Leaflet: enterprise styling ---------- */
@@ -1318,11 +1455,56 @@ input[type="range"]:disabled {
   .insight {
     border-radius: 0;
   }
+
+  .ui-card__body {
+    padding: 12px;
+  }
+
+  .ui-card__header {
+    padding: 12px;
+  }
+
+  .form-hint,
+  .ui-card__hint {
+    display: none;
+  }
+
+  .map-toolbar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .toolbar-group {
+    min-width: 150px;
+  }
+
+  .timeline-row {
+    gap: 8px;
+  }
+
+  .timeline-left,
+  .timeline-right {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .timeline-right {
+    flex-wrap: wrap;
+  }
+
+  .station-slider {
+    padding: 10px;
+  }
 }
 
 @media (max-width: 520px) {
   .brand__subtitle {
     display: none;
+  }
+
+  .sidebar,
+  .insight {
+    width: min(94vw, 390px);
   }
 
   .toolbar-group {
@@ -1334,11 +1516,21 @@ input[type="range"]:disabled {
   }
 
   .chart-wrap {
-    height: 320px;
+    height: 280px;
   }
 
   .kpi-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .main-value {
+    font-size: 1.6rem;
+  }
+
+  .map-hover {
+    min-width: 0;
+    max-width: calc(100% - 20px);
+    padding: 12px;
   }
 }
 
