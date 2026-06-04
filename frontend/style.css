@@ -464,18 +464,17 @@ input[type="range"]:disabled {
 }
 
 .station-cluster {
-  background: rgba(15, 23, 42, 0.92);
-  border: 2px solid rgba(255, 255, 255, 0.92);
-  border-radius: 999px;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.22);
-  color: #fff;
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-  line-height: 1;
+  background: transparent;
+  border: none;
 }
 
-.station-cluster span { font-size: 0.88rem; }
+.station-cluster__bubble {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+}
 
 #panelCountry {
   min-height: 1rem;

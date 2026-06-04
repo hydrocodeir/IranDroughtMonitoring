@@ -55,7 +55,7 @@ async function loadMetaForSelectedDataset() {
     indexEl.textContent = '';
     const fragment = document.createDocumentFragment();
     sortedIndices.forEach((idx) => {
-      const m = String(idx).match(/^(spi|spei)(\d+)$/i);
+      const m = String(idx).match(/^(spi|spei|ssi)(\d+)$/i);
       const label = m ? `${m[1].toUpperCase()}-${m[2]}` : String(idx).toUpperCase();
       const option = document.createElement('option');
       option.value = String(idx).toLowerCase();
@@ -64,10 +64,10 @@ async function loadMetaForSelectedDataset() {
     });
     indexEl.appendChild(fragment);
 
-    const preferred = ['spi3', 'spei3', sortedIndices[0]];
+    const preferred = ['spi3', 'spei3', 'ssi3', sortedIndices[0]];
     const chosen = preferred.find((v) => sortedIndices.includes(v)) || sortedIndices[0];
     if (!hasInitializedIndexSelection) {
-      // Initial app load: default to SPI-3 (or SPEI-3 fallback) when present.
+      // Initial app load: default to SPI-3, then SPEI-3, then SSI-3.
       indexEl.value = chosen;
       hasInitializedIndexSelection = true;
     } else {
@@ -86,7 +86,7 @@ async function loadMetaForSelectedDataset() {
 syncBootstrapDir();
 
 // ---------- Map (Leaflet) ----------
-const DEFAULT_VIEW = Object.freeze({ center: [32.5, 53.6], zoom: 5 });
+const DEFAULT_VIEW = Object.freeze({ center: [30, 0], zoom: 2 });
 const map = L.map('map', { zoomControl: false, preferCanvas: true }).setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
 // Keep controls away from the fixed bottom-left map tooltip and top-left legend.
 L.control.zoom({ position: 'topright' }).addTo(map);
@@ -147,6 +147,7 @@ let stationMaxInt = null;
 let stationMonthInt = null;
 
 let searchQuery = '';
+let showAllStationMarkers = false;
 
 // Cached panel series for the currently selected feature (used to update chart
 // markers when the global map month changes without reloading the whole panel).
@@ -197,6 +198,7 @@ const hoverIndexEl = document.getElementById('hoverIndex');
 const hoverValueEl = document.getElementById('hoverValue');
 const hoverSeverityEl = document.getElementById('hoverSeverity');
 const hoverTrendEl = document.getElementById('hoverTrend');
+const markerModeToggleEl = document.getElementById('markerModeToggle');
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
@@ -290,20 +292,22 @@ function isBarClimateIndex(indexName) {
 function sortIndexOptions(indices) {
   const unique = [...new Set((indices || []).map((idx) => String(idx || '').trim().toLowerCase()).filter(Boolean))];
   const parsed = (value) => {
-    const match = String(value).match(/^(spi|spei)(\d+)$/i);
-    if (!match) return { family: 1, window: Number.MAX_SAFE_INTEGER, label: String(value).toLowerCase() };
+    const match = String(value).match(/^(spi|spei|ssi)(\d+)$/i);
+    if (!match) return { family: 3, window: Number.MAX_SAFE_INTEGER, label: String(value).toLowerCase(), raw: String(value).toLowerCase() };
+    const familyOrder = { spi: 0, spei: 1, ssi: 2 };
     return {
-      family: match[1].toLowerCase() === 'spi' ? 0 : 1,
+      family: familyOrder[match[1].toLowerCase()] ?? 3,
       window: Number(match[2]),
-      label: `${match[1].toLowerCase()}${match[2]}`
+      label: `${match[1].toUpperCase()}-${match[2]}`,
+      raw: `${match[1].toLowerCase()}${match[2]}`
     };
   };
   return unique.sort((a, b) => {
     const pa = parsed(a);
     const pb = parsed(b);
-    if (pa.window !== pb.window) return pa.window - pb.window;
     if (pa.family !== pb.family) return pa.family - pb.family;
-    return pa.label.localeCompare(pb.label);
+    if (pa.window !== pb.window) return pa.window - pb.window;
+    return pa.label.localeCompare(pb.label) || pa.raw.localeCompare(pb.raw);
   });
 }
 
@@ -313,6 +317,20 @@ function getFeatureDisplayName(feature) {
     || feature?.properties?.title
     || feature?.properties?.id
     || 'Region';
+}
+
+function getFeatureId(feature) {
+  return String(
+    feature?.properties?.id
+    ?? feature?.properties?.station_id
+    ?? feature?.properties?.feature_id
+    ?? ''
+  ).trim();
+}
+
+function isSelectedFeature(feature) {
+  const selectedId = getFeatureId(selectedFeature);
+  return Boolean(selectedId) && getFeatureId(feature) === selectedId;
 }
 
 function getFeatureCountry(feature) {
@@ -331,35 +349,90 @@ function featureMatchesSearch(feature) {
   const name = String(getFeatureDisplayName(feature)).toLowerCase();
   const country = String(getFeatureCountry(feature)).toLowerCase();
   const province = String(feature?.properties?.province || feature?.properties?.Province || '').toLowerCase();
-  const id = String(feature?.properties?.id || '').toLowerCase();
+  const id = getFeatureId(feature).toLowerCase();
   return name.includes(q) || country.includes(q) || province.includes(q) || id.includes(q);
 }
 
+function clusterVisuals(count) {
+  if (count >= 1000) return { size: 58, bg: '#f97316', ring: '#fdba74', text: '#431407' };
+  if (count >= 250) return { size: 52, bg: '#fb923c', ring: '#fed7aa', text: '#4a1d09' };
+  if (count >= 75) return { size: 46, bg: '#facc15', ring: '#fde68a', text: '#713f12' };
+  if (count >= 20) return { size: 42, bg: '#fde047', ring: '#fef08a', text: '#713f12' };
+  return { size: 38, bg: '#86efac', ring: '#bbf7d0', text: '#14532d' };
+}
+
+function formatClusterCount(count) {
+  return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(count);
+}
+
 function clusterIcon(count) {
+  const visuals = clusterVisuals(count);
+  const fontSize = count >= 1000 ? 12 : 13;
   return L.divIcon({
     className: 'station-cluster',
-    html: `<span>${count}</span>`,
-    iconSize: [38, 38],
-    iconAnchor: [19, 19]
+    html: `<div class="station-cluster__bubble" style="width:${visuals.size}px;height:${visuals.size}px;border-radius:50%;background:${visuals.bg};border:5px solid ${visuals.ring};color:${visuals.text};display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;font-weight:800;line-height:1;box-shadow:0 10px 22px rgba(15,23,42,0.18);">${formatClusterCount(count)}</div>`,
+    iconSize: [visuals.size, visuals.size],
+    iconAnchor: [visuals.size / 2, visuals.size / 2]
+  });
+}
+
+function clusterSignIcon(count, value) {
+  const base = clusterVisuals(count);
+  const tone = clusterToneVisuals(value);
+  const fontSize = count >= 1000 ? 12 : 13;
+  return L.divIcon({
+    className: 'station-cluster',
+    html: `<div class="station-cluster__bubble" style="width:${base.size}px;height:${base.size}px;border-radius:50%;background:${tone.bg};border:5px solid ${tone.ring};color:${tone.text};display:flex;align-items:center;justify-content:center;font-size:${fontSize}px;font-weight:800;line-height:1;box-shadow:0 10px 22px rgba(15,23,42,0.18);">${formatClusterCount(count)}</div>`,
+    iconSize: [base.size, base.size],
+    iconAnchor: [base.size / 2, base.size / 2]
   });
 }
 
 function pointRadiusForFeature(feature, index, climateRange) {
   const hasValue = feature?.properties?.has_value !== false;
   if (!hasValue) return 6;
-  if (!isDroughtIndex(index)) return climatePointRadius(Number(feature?.properties?.value), climateRange);
+  if (!isDroughtIndex(index)) return climatePointRadius(Math.abs(Number(feature?.properties?.value)), climateRange);
   return 7;
 }
 
 function pointStyleForFeature(feature, index, climateRange) {
+  const selected = isSelectedFeature(feature);
   const hasValue = feature?.properties?.has_value !== false;
+  const value = Number(feature?.properties?.value);
+  const fillColor = hasValue ? mapValueColor(value, index) : '#e5e7eb';
+  const baseRadius = pointRadiusForFeature(feature, index, climateRange);
   return {
-    radius: pointRadiusForFeature(feature, index, climateRange),
-    weight: 1.5,
-    color: '#0f172a',
-    fillColor: hasValue ? severityColor(feature?.properties?.severity) : '#e5e7eb',
-    fillOpacity: hasValue ? 0.95 : 0.2
+    radius: selected ? Math.max(baseRadius + 3, 10) : baseRadius,
+    weight: selected ? 3.5 : 1.5,
+    color: selected ? '#1d4ed8' : fillColor,
+    fillColor: selected ? '#f8fafc' : fillColor,
+    fillOpacity: selected ? 1 : (hasValue ? 0.95 : 0.2),
+    opacity: 1,
+    className: selected ? 'station-marker--selected' : ''
   };
+}
+
+function buildPointMarker(feature, index) {
+  const coords = feature?.geometry?.coordinates || [];
+  if (coords.length < 2) return null;
+  const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
+  const marker = L.circleMarker(latlng, pointStyleForFeature(feature, index, currentMapClimateRange));
+  marker.on('mouseover', () => {
+    if (searchQuery && !featureMatchesSearch(feature)) return;
+    setHoverInfo(feature, index);
+  });
+  marker.on('mouseout', () => {
+    if (searchQuery && !featureMatchesSearch(feature)) return;
+    setHoverInfo(null);
+  });
+  marker.on('click', () => {
+    if (searchQuery && !featureMatchesSearch(feature)) return;
+    onRegionClick(feature);
+  });
+  if (isSelectedFeature(feature) && marker.bringToFront) {
+    marker.on('add', () => marker.bringToFront());
+  }
+  return marker;
 }
 
 
@@ -372,11 +445,6 @@ function populateIndexOptions() {
     spiOption.value = `spi${monthWindow}`;
     spiOption.textContent = `SPI-${monthWindow}`;
     fragment.appendChild(spiOption);
-
-    const speiOption = document.createElement('option');
-    speiOption.value = `spei${monthWindow}`;
-    speiOption.textContent = `SPEI-${monthWindow}`;
-    fragment.appendChild(speiOption);
   }
   indexEl.appendChild(fragment);
   indexEl.value = 'spi3';
@@ -392,6 +460,31 @@ const severityLong = {
 };
 
 function severityColor(sev) { return droughtColors[sev] || '#60a5fa'; }
+
+function mapSignTone(value) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return 'neutral';
+  if (num > 0) return 'positive';
+  if (num < 0) return 'negative';
+  return 'neutral';
+}
+
+function mapValueColor(value, indexName) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return '#e5e7eb';
+  if (isDroughtIndex(indexName)) return severityColor(classify(num));
+  const tone = mapSignTone(value);
+  if (tone === 'positive') return '#2563eb';
+  if (tone === 'negative') return '#dc2626';
+  return '#9ca3af';
+}
+
+function clusterToneVisuals(value) {
+  const tone = mapSignTone(value);
+  if (tone === 'positive') return { bg: 'rgba(37, 99, 235, 0.88)', ring: 'rgba(37, 99, 235, 0.30)', text: '#ffffff' };
+  if (tone === 'negative') return { bg: 'rgba(220, 38, 38, 0.88)', ring: 'rgba(220, 38, 38, 0.30)', text: '#ffffff' };
+  return { bg: 'rgba(107, 114, 128, 0.86)', ring: 'rgba(107, 114, 128, 0.26)', text: '#ffffff' };
+}
 
 // 3-class trend classification (must match backend rules)
 function classifyTrend(trend, alpha = 0.05) {
@@ -883,10 +976,44 @@ function getStartValueForLastYears(parsedData, years = 5) {
   return parsedData[idx][0];
 }
 
+function getInitialChartZoom(parsedData, years = 5) {
+  if (!Array.isArray(parsedData) || parsedData.length < 2) return null;
+
+  const firstValue = parsedData[0]?.[0];
+  const lastValue = parsedData[parsedData.length - 1]?.[0];
+  if (!firstValue || !lastValue) return null;
+
+  const fallbackWindow = Math.max(years * 12, 1);
+  const fallbackStartIndex = Math.max(parsedData.length - fallbackWindow, 0);
+  const fallbackNeedsZoom = parsedData.length > fallbackWindow;
+
+  const firstDate = new Date(firstValue);
+  const lastDate = new Date(lastValue);
+  const hasValidDates = !Number.isNaN(firstDate.getTime()) && !Number.isNaN(lastDate.getTime());
+
+  if (!hasValidDates) {
+    if (!fallbackNeedsZoom) return null;
+    return {
+      startValue: parsedData[fallbackStartIndex]?.[0] ?? firstValue,
+      endValue: lastValue
+    };
+  }
+
+  const startThreshold = new Date(lastDate);
+  startThreshold.setUTCFullYear(lastDate.getUTCFullYear() - years);
+  const needsZoom = firstDate < startThreshold;
+  if (!needsZoom) return null;
+
+  return {
+    startValue: getStartValueForLastYears(parsedData, years) || firstValue,
+    endValue: lastValue
+  };
+}
+
 function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   const droughtMode = isDroughtIndex(indexLabel);
   const barClimateMode = !droughtMode && isBarClimateIndex(indexLabel);
-  const selectedId = String(selectedFeature?.properties?.id || 'unknown');
+  const selectedId = getFeatureId(selectedFeature) || 'unknown';
   const lastPoint = ts.length ? `${ts[ts.length - 1].date}|${ts[ts.length - 1].value}` : 'empty';
   const derivedKey = `${selectedId}|${levelEl.value}|${indexLabel}|${mapMonth}|${panelMonth}|${ts.length}|${lastPoint}`;
   let cachedDerived = derivedSeriesCache.get(derivedKey);
@@ -906,6 +1033,13 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   const { parsedData, trendData } = cachedDerived;
   const selectedDate = toChartMonthStart(mapMonth);
   const panelDate = toChartMonthStart(panelMonth);
+  const nonDroughtLineMode = !droughtMode && !barClimateMode;
+  const positiveAreaData = nonDroughtLineMode
+    ? parsedData.map((point) => [point[0], point[1] != null && point[1] > 0 ? point[1] : null])
+    : [];
+  const negativeAreaData = nonDroughtLineMode
+    ? parsedData.map((point) => [point[0], point[1] != null && point[1] < 0 ? point[1] : null])
+    : [];
 
   const chartDom = document.getElementById('tsChart');
   if (lastChartRenderKey !== derivedKey && chart) {
@@ -926,9 +1060,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
     { xAxis: panelDate, name: 'Panel' }
   ];
 
-  const endValue = parsedData[parsedData.length - 1]?.[0];
-  // Initial viewport: most recent year
-  const startValue = getStartValueForLastYears(parsedData, 1) || parsedData[0]?.[0];
+  const initialZoom = getInitialChartZoom(parsedData, 5);
   // No separate timeline series; we use vertical markLines for both dates.
 
 
@@ -971,7 +1103,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
 
         const visible = entries
           // Hide helper series from tooltip (Trend)
-          .filter((item) => !['Trend'].includes(item?.seriesName))
+          .filter((item) => !(String(item?.seriesName || '').startsWith('__')) && !['Trend'].includes(item?.seriesName))
           .map((item) => {
             const value = Array.isArray(item.value) ? item.value[1] : item.value;
             return `${item.marker}${item.seriesName}: ${formatNumber(value)}`;
@@ -1037,6 +1169,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
         type: 'inside',
         xAxisIndex: 0,
         filterMode: 'none',
+        ...(initialZoom || {}),
         // Horizontal scrolling / panning:
         // - Mouse wheel pans by default (older years)
         // - Hold SHIFT and use wheel to zoom
@@ -1048,8 +1181,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
         type: 'slider',
         show: true,
         xAxisIndex: 0,
-        startValue,
-        endValue,
+        ...(initialZoom || {}),
         bottom: 12,
         height: 26,
         showDetail: false,
@@ -1063,13 +1195,41 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       }
     ],
     series: [
+      ...(nonDroughtLineMode ? [
+        {
+          name: '__positive_fill',
+          type: 'line',
+          data: positiveAreaData,
+          symbol: 'none',
+          lineStyle: { opacity: 0, width: 0 },
+          itemStyle: { opacity: 0 },
+          showSymbol: false,
+          silent: true,
+          tooltip: { show: false },
+          areaStyle: { color: 'rgba(37, 99, 235, 0.22)' },
+          animation: false
+        },
+        {
+          name: '__negative_fill',
+          type: 'line',
+          data: negativeAreaData,
+          symbol: 'none',
+          lineStyle: { opacity: 0, width: 0 },
+          itemStyle: { opacity: 0 },
+          showSymbol: false,
+          silent: true,
+          tooltip: { show: false },
+          areaStyle: { color: 'rgba(239, 68, 68, 0.22)' },
+          animation: false
+        }
+      ] : []),
       {
         name: formatIndexLabel(indexLabel),
         type: barClimateMode ? 'bar' : 'line',
         data: parsedData,
         symbol: barClimateMode ? undefined : 'none',
-        lineStyle: barClimateMode ? undefined : { width: 2 },
-        itemStyle: barClimateMode ? { color: '#2563eb' } : undefined,
+        lineStyle: barClimateMode ? undefined : { width: 2, color: nonDroughtLineMode ? '#6b7280' : undefined },
+        itemStyle: barClimateMode ? { color: '#2563eb' } : (nonDroughtLineMode ? { color: '#6b7280' } : undefined),
         areaStyle: (droughtMode || barClimateMode) ? (droughtMode ? { origin: 0, opacity: 0.7 } : undefined) : { opacity: 0.28 },
         animation: false,
         markLine: {
@@ -1094,6 +1254,9 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
       // Timeline markers are rendered via markLine.
     ]
   };
+  if (nonDroughtLineMode) {
+    option.legend.data = [formatIndexLabel(indexLabel), 'Trend'];
+  }
   if (droughtMode) {
     option.yAxis.interval = 1;
     option.visualMap = {
@@ -1116,12 +1279,21 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
   currentRangeStart = parsedData.length ? formatChartDate(parsedData[0][0]) : null;
   currentRangeEnd = parsedData.length ? formatChartDate(parsedData[parsedData.length - 1][0]) : null;
   chart.setOption(option, true);
+  if (initialZoom?.startValue && initialZoom?.endValue) {
+    chart.dispatchAction({
+      type: 'dataZoom',
+      batch: [
+        { dataZoomIndex: 0, startValue: initialZoom.startValue, endValue: initialZoom.endValue },
+        { dataZoomIndex: 1, startValue: initialZoom.startValue, endValue: initialZoom.endValue }
+      ]
+    });
+  }
   lastChartRenderKey = derivedKey;
 }
 
 function formatIndexLabel(value) {
   const raw = String(value || '');
-  const m = raw.match(/^(spi|spei)(\d+)$/i);
+  const m = raw.match(/^(spi|spei|ssi)(\d+)$/i);
   if (m) return `${m[1].toUpperCase()}-${m[2]}`;
   if (/^tmin$/i.test(raw)) return 'Tmin';
   if (/^tmax$/i.test(raw)) return 'Tmax';
@@ -1137,15 +1309,7 @@ function updateSubtitles() {
   const text = `${idxLabel} • ${dateLabel} • Level: ${levelLabel}`;
   if (mapSubtitleEl) mapSubtitleEl.textContent = text;
   if (overviewSubtitleEl) overviewSubtitleEl.textContent = text;
-
-  const legendTitle = document.getElementById('legendTitle');
-  if (legendTitle) {
-    legendTitle.textContent = 'Drought severity guide';
-  }
-  const trendIncLabel = document.getElementById('legendTrendInc');
-  const trendDecLabel = document.getElementById('legendTrendDec');
-  if (trendIncLabel) trendIncLabel.textContent = isDroughtIndex(indexEl.value) ? 'Increasing trend (wetter)' : 'Increasing trend';
-  if (trendDecLabel) trendDecLabel.textContent = isDroughtIndex(indexEl.value) ? 'Decreasing trend (drier)' : 'Decreasing trend';
+  renderMapLegend(indexEl.value);
 }
 
 function ensureOverviewChart() {
@@ -1266,34 +1430,69 @@ function renderOverviewFromCounts(payload) {
   }
 }
 
-function addMapLegend() {
-  // Legend: top-left, collapsed by default.
-  const legend = L.control({ position: 'topleft' });
-  legend.onAdd = () => {
-    const div = L.DomUtil.create('div', 'map-legend collapsed');
-    div.id = 'mapLegendBox';
-    const items = [
-      ['NW', 'Normal/Wet', '#86efac'],
-      ['D0', 'Abnormally Dry', '#fde047'],
-      ['D1', 'Moderate Drought', '#fbbf24'],
-      ['D2', 'Severe Drought', '#f97316'],
-      ['D3', 'Extreme Drought', '#dc2626'],
-      ['D4', 'Exceptional Drought', '#7f1d1d'],
-      ['—', 'No data', '#e5e7eb']
-    ];
-    div.innerHTML = `
+function buildMapLegendHtml(indexName) {
+  const droughtMode = isDroughtIndex(indexName);
+  const items = droughtMode
+    ? [
+        ['NW', 'Normal/Wet', '#86efac'],
+        ['D0', 'Abnormally Dry', '#fde047'],
+        ['D1', 'Moderate Drought', '#fbbf24'],
+        ['D2', 'Severe Drought', '#f97316'],
+        ['D3', 'Extreme Drought', '#dc2626'],
+        ['D4', 'Exceptional Drought', '#7f1d1d'],
+        ['—', 'No data', '#e5e7eb']
+      ]
+    : [
+        ['+', 'Positive values', '#2563eb'],
+        ['0', 'Zero', '#9ca3af'],
+        ['−', 'Negative values', '#dc2626'],
+        ['—', 'No data', '#e5e7eb']
+      ];
+  const title = droughtMode ? 'Drought severity guide' : 'Value sign guide';
+  const trendPos = droughtMode ? 'Increasing trend (wetter)' : 'Increasing trend';
+  const trendNeg = droughtMode ? 'Decreasing trend (drier)' : 'Decreasing trend';
+
+  return `
       <div class="head">
-        <h6 id="legendTitle">Drought severity guide</h6>
+        <h6 id="legendTitle">${title}</h6>
         <button id="legendToggle" class="toggle" type="button" aria-label="Show legend">▸</button>
       </div>
       <div class="legend-body" id="legendBody">
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
         <div class="legend-sep"></div>
         <div class="legend-subtitle">Trend guide (full period)</div>
-        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">Increasing trend (wetter)</span></div>
-        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">Decreasing trend (drier)</span></div>
+        <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">${trendPos}</span></div>
+        <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">${trendNeg}</span></div>
         <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>
       </div>`;
+}
+
+function renderMapLegend(indexName) {
+  const legendBox = document.getElementById('mapLegendBox');
+  if (!legendBox) return;
+  const collapsed = legendBox.classList.contains('collapsed');
+  legendBox.innerHTML = buildMapLegendHtml(indexName);
+  legendBox.classList.toggle('collapsed', collapsed);
+  const toggle = document.getElementById('legendToggle');
+  if (toggle) {
+    toggle.textContent = collapsed ? '▸' : '▾';
+    toggle.setAttribute('aria-label', collapsed ? 'Show legend' : 'Collapse legend');
+    toggle.onclick = () => {
+      legendBox.classList.toggle('collapsed');
+      const isCollapsed = legendBox.classList.contains('collapsed');
+      toggle.textContent = isCollapsed ? '▸' : '▾';
+      toggle.setAttribute('aria-label', isCollapsed ? 'Show legend' : 'Collapse legend');
+    };
+  }
+}
+
+function addMapLegend() {
+  // Legend: top-left, collapsed by default.
+  const legend = L.control({ position: 'topleft' });
+  legend.onAdd = () => {
+    const div = L.DomUtil.create('div', 'map-legend collapsed');
+    div.id = 'mapLegendBox';
+    div.innerHTML = buildMapLegendHtml(indexEl.value);
 
     // Prevent map interactions while using the legend.
     L.DomEvent.disableClickPropagation(div);
@@ -1301,18 +1500,6 @@ function addMapLegend() {
     return div;
   };
   legend.addTo(map);
-
-  setTimeout(() => {
-    const toggle = document.getElementById('legendToggle');
-    const legendBox = document.getElementById('mapLegendBox');
-    if (!toggle || !legendBox) return;
-    toggle.addEventListener('click', () => {
-      legendBox.classList.toggle('collapsed');
-      const collapsed = legendBox.classList.contains('collapsed');
-      toggle.textContent = collapsed ? '▸' : '▾';
-      toggle.setAttribute('aria-label', collapsed ? 'Show legend' : 'Collapse legend');
-    });
-  }, 100);
 }
 
 function setHoverInfo(feature, indexName) {
@@ -1350,6 +1537,14 @@ function computeClimateValueRange(features) {
   return { min: Math.min(...vals), max: Math.max(...vals) };
 }
 
+function computeMagnitudeValueRange(features) {
+  const vals = (features || [])
+    .map((f) => Math.abs(Number(f?.properties?.value)))
+    .filter((v) => Number.isFinite(v));
+  if (!vals.length) return null;
+  return { min: Math.min(...vals), max: Math.max(...vals) };
+}
+
 function climatePointRadius(value, range) {
   if (!Number.isFinite(value) || !range) return 6;
   const span = range.max - range.min;
@@ -1359,13 +1554,18 @@ function climatePointRadius(value, range) {
 }
 
 function buildPolygonLayer(features, index) {
-  const defaultPolyStyle = (f) => ({
-    color: '#334155',
-    weight: 1,
-    opacity: (f?.properties?.has_value === false) ? 0.35 : 1,
-    fillOpacity: (f?.properties?.has_value === false) ? 0.12 : 0.78,
-    fillColor: (f?.properties?.has_value === false) ? '#e5e7eb' : severityColor(f?.properties?.severity)
-  });
+  const defaultPolyStyle = (f) => {
+    const selected = isSelectedFeature(f);
+    const hasValue = f?.properties?.has_value !== false;
+    const baseColor = hasValue ? mapValueColor(f?.properties?.value, index) : '#94a3b8';
+    return {
+      color: selected ? '#1d4ed8' : baseColor,
+      weight: selected ? 3 : 1,
+      opacity: selected ? 1 : (hasValue ? 1 : 0.35),
+      fillOpacity: selected ? 0.88 : (hasValue ? 0.78 : 0.12),
+      fillColor: selected ? '#dbeafe' : (hasValue ? baseColor : '#e5e7eb')
+    };
+  };
 
   const hoverPolyStyle = {
     color: '#0f172a',
@@ -1393,20 +1593,39 @@ function buildPolygonLayer(features, index) {
         if (searchQuery && !featureMatchesSearch(feature)) return;
         onRegionClick(feature);
       });
+
+      if (isSelectedFeature(feature) && layer.bringToFront) {
+        layer.bringToFront();
+      }
     }
   });
 }
 
 function buildPointLayer(features, index) {
+  if (showAllStationMarkers) {
+    const group = L.layerGroup();
+    for (const feature of features) {
+      const marker = buildPointMarker(feature, index);
+      if (marker) group.addLayer(marker);
+    }
+    return group;
+  }
+
   const cellSize = map.getZoom() >= 11 ? 26 : map.getZoom() >= 9 ? 34 : map.getZoom() >= 7 ? 44 : 56;
   const buckets = new Map();
   const visibleBounds = map.getBounds();
+  const selectedId = getFeatureId(selectedFeature);
+  const selectedPoints = [];
 
   for (const feature of features) {
     const coords = feature?.geometry?.coordinates || [];
     if (coords.length < 2) continue;
     const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
     if (!visibleBounds.contains(latlng)) continue;
+    if (selectedId && getFeatureId(feature) === selectedId) {
+      selectedPoints.push(feature);
+      continue;
+    }
     const projected = map.project(latlng, map.getZoom());
     const key = `${Math.floor(projected.x / cellSize)}:${Math.floor(projected.y / cellSize)}`;
     let bucket = buckets.get(key);
@@ -1424,28 +1643,24 @@ function buildPointLayer(features, index) {
   buckets.forEach((bucket) => {
     if (!bucket.features.length) return;
     if (bucket.features.length === 1) {
-      const feature = bucket.features[0];
-      const coords = feature?.geometry?.coordinates || [];
-      const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
-      const marker = L.circleMarker(latlng, pointStyleForFeature(feature, index, currentMapClimateRange));
-      marker.on('mouseover', () => {
-        if (searchQuery && !featureMatchesSearch(feature)) return;
-        setHoverInfo(feature, index);
-      });
-      marker.on('mouseout', () => {
-        if (searchQuery && !featureMatchesSearch(feature)) return;
-        setHoverInfo(null);
-      });
-      marker.on('click', () => {
-        if (searchQuery && !featureMatchesSearch(feature)) return;
-        onRegionClick(feature);
-      });
-      group.addLayer(marker);
+      const marker = buildPointMarker(bucket.features[0], index);
+      if (marker) group.addLayer(marker);
       return;
     }
 
     const latlng = L.latLng(bucket.latSum / bucket.features.length, bucket.lngSum / bucket.features.length);
-    const clusterMarker = L.marker(latlng, { icon: clusterIcon(bucket.features.length), keyboard: false, riseOnHover: true });
+    const bucketValues = bucket.features
+      .map((feature) => Number(feature?.properties?.value))
+      .filter((value) => Number.isFinite(value));
+    const clusterValue = bucketValues.length ? (bucketValues.reduce((sum, value) => sum + value, 0) / bucketValues.length) : null;
+    const clusterMarker = L.marker(
+      latlng,
+      {
+        icon: isDroughtIndex(index) ? clusterIcon(bucket.features.length) : clusterSignIcon(bucket.features.length, clusterValue),
+        keyboard: false,
+        riseOnHover: true
+      }
+    );
     clusterMarker.on('click', () => {
       const pad = Math.max(0.15, 0.5 - (bucket.features.length * 0.01));
       const maxZoom = Math.min((map.getMaxZoom?.() ?? 18), map.getZoom() + 2);
@@ -1455,7 +1670,20 @@ function buildPointLayer(features, index) {
     group.addLayer(clusterMarker);
   });
 
+  for (const feature of selectedPoints) {
+    const marker = buildPointMarker(feature, index);
+    if (marker) group.addLayer(marker);
+  }
+
   return group;
+}
+
+function syncMarkerModeToggle(points = []) {
+  if (!markerModeToggleEl) return;
+  const hasPoints = (levelEl?.value || '').toLowerCase() === 'station' || points.length > 0;
+  markerModeToggleEl.disabled = !hasPoints;
+  markerModeToggleEl.checked = showAllStationMarkers;
+  markerModeToggleEl.title = hasPoints ? 'Toggle between clustered and individual station markers' : 'This layer has no station markers';
 }
 
 function renderCurrentMapFeatures() {
@@ -1468,6 +1696,7 @@ function renderCurrentMapFeatures() {
   const features = (currentMapFeatures || []).filter(featureMatchesSearch);
   const polygons = features.filter((feature) => !isPointFeature(feature));
   const points = features.filter((feature) => isPointFeature(feature));
+  syncMarkerModeToggle(points);
 
   if (polygons.length) {
     geoLayer.addLayer(buildPolygonLayer(polygons, currentMapIndex));
@@ -1492,7 +1721,7 @@ async function updatePanelForMonth(newMonth) {
   paintRange(stationSliderEl);
   if (stationMonthLabelEl) { stationMonthLabelEl.textContent = `Selected month: ${monthStr.replace(/-/g, '/')}`; stationMonthLabelEl.dataset.month = monthStr; }
 
-  const regionId = selectedFeature?.properties?.id;
+  const regionId = getFeatureId(selectedFeature);
   const indexName = indexEl.value;
   const levelName = levelEl.value;
   const featureName = getFeatureDisplayName(selectedFeature) || currentPanelFeatureName || 'Region';
@@ -1566,7 +1795,7 @@ async function loadMap() {
   latestMapFeatures = data.features || [];
   currentMapFeatures = latestMapFeatures.slice();
   currentMapIndex = index;
-  currentMapClimateRange = isDroughtIndex(index) ? null : computeClimateValueRange(currentMapFeatures);
+  currentMapClimateRange = isDroughtIndex(index) ? null : computeMagnitudeValueRange(currentMapFeatures);
   if (geoLayer) map.removeLayer(geoLayer);
   geoLayer = L.layerGroup().addTo(map);
   renderCurrentMapFeatures();
@@ -1612,7 +1841,8 @@ async function loadOverview() {
 async function onRegionClick(feature) {
   try {
     selectedFeature = feature;
-    const regionId = feature?.properties?.id;
+    renderCurrentMapFeatures();
+    const regionId = getFeatureId(feature);
     const indexName = indexEl.value;
     const levelName = levelEl.value;
     const featureName = getFeatureDisplayName(feature);
@@ -1720,8 +1950,8 @@ async function onRegionClick(feature) {
 
 function findSelectedFeatureFromCurrentMap() {
   if (!selectedFeature || !latestMapFeatures.length) return selectedFeature;
-  const selectedId = String(selectedFeature?.properties?.id ?? '');
-  return latestMapFeatures.find((f) => String(f?.properties?.id ?? '') === selectedId) || selectedFeature;
+  const selectedId = getFeatureId(selectedFeature);
+  return latestMapFeatures.find((f) => getFeatureId(f) === selectedId) || selectedFeature;
 }
 
 async function onDateChanged() {
@@ -1932,6 +2162,14 @@ function setupEvents() {
       searchQuery = '';
       if (searchEl) searchEl.value = '';
       applySearchFilter();
+    });
+  }
+
+  if (markerModeToggleEl) {
+    markerModeToggleEl.checked = false;
+    markerModeToggleEl.addEventListener('change', () => {
+      showAllStationMarkers = markerModeToggleEl.checked;
+      renderCurrentMapFeatures();
     });
   }
 

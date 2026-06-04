@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Drought Monitoring Dashboard</title>
+  <link rel="icon" type="image/png" href="./static/HydroDrought.png" />
 
   <link rel="stylesheet" href="./static/css/bootstrap.min.css">
   <link rel="stylesheet" href="./static/css/bootstrap-icons.min.css">
@@ -48,14 +49,14 @@
               <div class="ui-card__title"><i class="bi bi-funnel"></i><span>Filters</span></div>
             </div>
             <div class="ui-card__body">
-              <label class="form-label" for="search">Search region</label>
+              <label class="form-label" for="search">Search station</label>
               <div class="search-row">
-                <input id="search" placeholder="Example: Tehran" class="form-control form-control-sm" />
+                <input id="search" placeholder="Example: Station name or ID" class="form-control form-control-sm" />
                 <button id="clearSearch" class="btn btn-sm" type="button" title="Clear search">
                   <i class="bi bi-trash3 text-danger"></i>
                 </button>
               </div>
-              <div class="form-hint">Non-matching regions are dimmed on the map.</div>
+              <div class="form-hint">Find stations by name, country, province, or station ID. Non-matching stations are hidden from the current map view.</div>
             </div>
           </section>
 
@@ -63,24 +64,24 @@
             <div class="ui-card__header">
               <div class="ui-card__title">
                 <i class="bi bi-activity"></i>
-                <span>Index</span>
+                <span>Indices</span>
               </div>
             </div>
             <div class="ui-card__body">
-              <label class="form-label" for="index">Select index</label>
+              <label class="form-label" for="index">Select indicator</label>
               <select id="index" class="form-select form-select-sm"></select>
-              <div class="form-hint">Monthly and seasonal windows are supported.</div>
+              <div class="form-hint">Choose which drought indicator from the selected dataset is shown on the map and charts.</div>
             </div>
           </section>
 
           <section class="ui-card">
             <div class="ui-card__header">
-              <div class="ui-card__title"><i class="bi bi-globe2"></i><span>Geographic level</span></div>
+              <div class="ui-card__title"><i class="bi bi-globe2"></i><span>Dataset</span></div>
             </div>
             <div class="ui-card__body">
-              <label class="form-label" for="level">Select level</label>
+              <label class="form-label" for="level">Select dataset</label>
               <select id="level" class="form-select form-select-sm"></select>
-              <div class="form-hint">Each level has independent boundaries and data.</div>
+              <div class="form-hint">Choose the dataset to load. Each dataset can have its own boundaries, stations, and time coverage.</div>
             </div>
           </section>
         </div>
@@ -102,7 +103,11 @@
                     <option value="dark">Dark map</option>
                   </select>
                 </div>
-                <button id="resetView" class="btn btn-sm btn-light" type="button" title="Reset to Iran view">
+                <div class="form-check form-switch toolbar-toggle">
+                  <input class="form-check-input" type="checkbox" role="switch" id="markerModeToggle" aria-label="Show all station markers" />
+                  <label class="form-check-label" for="markerModeToggle">Show all markers</label>
+                </div>
+                <button id="resetView" class="btn btn-sm btn-light" type="button" title="Reset map view">
                   Reset
                 </button>
               </div>
@@ -199,22 +204,22 @@
 
               <div id="indexHelpPanel" class="help-panel d-none tiny-font">
                 <button class="help-panel__close" data-close-help="indexHelpPanel" type="button">✕</button>
-                <h6>SPI and SPEI indices</h6>
-                <p>SPI and SPEI are standardized indices used to monitor meteorological drought.</p>
+                <h6>SPI index</h6>
+                <p>SPI is a standardized index used to monitor meteorological drought.</p>
                 <p><strong>SPI:</strong> calculated from precipitation.</p>
-                <p><strong>SPEI:</strong> includes precipitation plus temperature and potential evapotranspiration effects.</p>
-                <p>Both are useful for short-term and seasonal drought analysis across regions.</p>
                 <p><strong>SPI method:</strong> computed with the Standardized Drought Analysis Toolbox (SDAT) framework.</p>
                 <h6>Data summary</h6>
-                <p><strong>Source:</strong> synoptic weather stations in Iran</p>
+                <p><strong>Coverage:</strong> global station dataset</p>
+                <p><strong>Precipitation source:</strong> NOAA Global Historical Climatology Network Daily (GHCN-Daily)</p>
+                <p><strong>Station selection:</strong> more than 12,000 stations were selected with at most 10% missing data in the time period ending in 2025.</p>
                 <p><strong>Time coverage:</strong> from station inception through 2025</p>
-                <p><strong>Variables:</strong> monthly precipitation (and monthly temperature for SPEI)</p>
+                <p><strong>Variables:</strong> monthly precipitation</p>
                 <small>Indices are computed independently for each station using its full historical record.</small>
                 <h6>References</h6>
                 <p>Inspired by <a href="https://drought.eng.uci.edu/" target="_blank" rel="noopener noreferrer">drought.eng.uci.edu</a>.</p>
                 <p>Hao Z., AghaKouchak A., Nakhjiri N., Farahmand A. (2014). Global Integrated Drought Monitoring and Prediction System. <em>Scientific Data</em>, 1:140001. doi:10.1038/sdata.2014.1</p>
                 <p>Farahmand A., AghaKouchak A. (2015). A Generalized Framework for Deriving Nonparametric Standardized Drought Indicators. <em>Advances in Water Resources</em>, 76, 140-145. doi:10.1016/j.advwatres.2014.11.012</p>
-                <h6>What is SPI-3 / SPEI-3?</h6>
+                <h6>What is SPI-3?</h6>
                 <ul>
                   <li>Uses a rolling 3-month aggregation window.</li>
                   <li>Sensitive to short-term and seasonal variability.</li>
@@ -228,7 +233,7 @@
                 <p><strong>-2.0 &lt; SPI ≤ -1.6:</strong> D3 - Extreme Drought</p>
                 <p><strong>SPI ≤ -2.0:</strong> D4 - Exceptional Drought</p>
                 <h6>Important note</h6>
-                <p>SPI/SPEI values are computed from each station's full statistical period and are not recalculated based on user-selected ranges.</p>
+                <p>SPI values are computed from each station's full statistical period and are not recalculated based on user-selected ranges.</p>
               </div>
 
               <div class="chart-section" aria-label="Time series">
@@ -302,7 +307,7 @@
         </div>
         <div class="app-modal__body">
           <p class="mb-2">
-            This dashboard is tailored for Iran's drought monitoring workflow. It visualizes SPI/SPEI indices for Iranian stations and management levels, and it is inspired by <a href="https://drought.eng.uci.edu/" target="_blank" rel="noopener noreferrer">drought.eng.uci.edu</a>.
+            This dashboard supports global drought monitoring workflows. It visualizes SPI values for station and management-level datasets, and it is inspired by <a href="https://drought.eng.uci.edu/" target="_blank" rel="noopener noreferrer">drought.eng.uci.edu</a>.
           </p>
           <ul class="clean-list">
             <li><strong>Map:</strong> hover for quick details, click for region analysis.</li>
@@ -310,6 +315,8 @@
             <li><strong>Performance:</strong> API requests are cached and the page updates without full reload.</li>
             <li><strong>Layout:</strong> responsive design for desktop and mobile.</li>
           </ul>
+          <p class="mb-2"><strong>Data source:</strong> precipitation data are sourced from NOAA Global Historical Climatology Network Daily (GHCN-Daily).</p>
+          <p class="mb-2"><strong>Station selection:</strong> more than 12,000 stations were selected with at most 10% missing data in the time period ending in 2025.</p>
           <p class="mb-2"><strong>SPI method:</strong> computed with the Standardized Drought Analysis Toolbox (SDAT) framework using the references listed below.</p>
           <ul class="clean-list">
             <li>Hao Z., AghaKouchak A., Nakhjiri N., Farahmand A. (2014). <em>Scientific Data</em>, 1:140001.</li>

@@ -440,6 +440,25 @@ input[type="range"]:disabled {
   min-width: 190px;
 }
 
+.toolbar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  padding-inline-start: 0;
+  white-space: nowrap;
+}
+
+.toolbar-toggle .form-check-input {
+  float: none;
+  margin: 0;
+}
+
+.toolbar-toggle .form-check-label {
+  font-size: 0.9rem;
+  color: var(--muted-2);
+}
+
 .map-card__body {
   position: relative;
   flex: 1;
@@ -474,6 +493,23 @@ input[type="range"]:disabled {
 
 .map-loading.show {
   display: flex;
+}
+
+.station-cluster {
+  background: transparent;
+  border: none;
+}
+
+.station-cluster__bubble {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  line-height: 1;
+}
+
+.station-marker--selected {
+  filter: drop-shadow(0 0 8px rgba(37, 99, 235, 0.45));
 }
 
 .map-hover {
