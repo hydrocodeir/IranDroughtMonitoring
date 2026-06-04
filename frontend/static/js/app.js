@@ -947,10 +947,20 @@ function setAboutModalOpen(open) {
   updateBackdrop();
 
   if (state.modalOpen) {
-    setTimeout(() => {
+    const scrollModalToTop = () => {
       const dialog = aboutModalEl.querySelector('.app-modal__dialog');
       aboutModalEl.scrollTop = 0;
-      if (dialog) dialog.scrollTop = 0;
+      if (dialog) {
+        dialog.scrollTop = 0;
+        dialog.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+      }
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      window.scrollTo?.(0, 0);
+    };
+    scrollModalToTop();
+    setTimeout(() => {
+      scrollModalToTop();
       (aboutOkBtn || aboutCloseBtn || aboutModalEl).focus?.();
     }, 0);
   }
@@ -1686,7 +1696,7 @@ function buildMapLegendHtml(indexName) {
         ['−', 'Negative values', '#dc2626'],
         ['—', 'No data', '#e5e7eb']
       ];
-  const title = droughtMode ? 'Drought severity guide' : 'Value sign guide';
+  const title = droughtMode ? '' : '';
   const trendPos = droughtMode ? 'Increasing trend (wetter)' : 'Increasing trend';
   const trendNeg = droughtMode ? 'Decreasing trend (drier)' : 'Decreasing trend';
   const trendNeutral = droughtMode ? '' : '<div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>';
@@ -2425,13 +2435,16 @@ function setupEvents() {
 
   if (mobileAnalysisTabBtn) {
     mobileAnalysisTabBtn.addEventListener('click', async () => {
+      document.activeElement?.blur?.();
       setSidebarOpen(false);
       setPanelOpen(true);
       setMobileSection('analysis');
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      lastPanelQueryKey = null;
+      await onDateChanged();
       if (selectedFeature) {
         const feature = findSelectedFeatureFromCurrentMap() || selectedFeature;
         if (feature) {
-          lastPanelQueryKey = null;
           await onRegionClick(feature);
         }
       }
@@ -2536,7 +2549,12 @@ function setupEvents() {
 
   function toggleHelp(panelEl) {
     if (!panelEl) return;
-    panelEl.classList.toggle('d-none');
+    const shouldOpen = panelEl.classList.contains('d-none');
+    [indexHelpPanel, trendHelpPanel].forEach((panel) => {
+      if (panel && panel !== panelEl) panel.classList.add('d-none');
+    });
+    panelEl.classList.toggle('d-none', !shouldOpen);
+    if (shouldOpen) panelEl.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }
 
   if (indexHelpBtn) indexHelpBtn.addEventListener('click', () => toggleHelp(indexHelpPanel));

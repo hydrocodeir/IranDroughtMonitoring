@@ -183,6 +183,7 @@ body {
   font-weight: 800;
   line-height: 1;
   padding: 0 2px;
+  touch-action: manipulation;
 }
 
 .help-panel {
@@ -213,6 +214,7 @@ body {
   border: 0;
   background: transparent;
   color: #64748b;
+  touch-action: manipulation;
 }
 
 .global-slider input[type="range"],
@@ -1329,10 +1331,11 @@ input[type="range"]:disabled {
   position: fixed;
   inset: 0;
   display: none;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1300;
   padding: var(--space-3);
+  overflow-y: auto;
 }
 
 .app-modal.open {
@@ -1349,7 +1352,7 @@ input[type="range"]:disabled {
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow);
-  margin-top: 16px;
+  margin: max(12px, env(safe-area-inset-top)) auto 24px;
 }
 
 .app-modal__header {
@@ -1559,8 +1562,6 @@ input[type="range"]:disabled {
     padding: 10px 12px;
   }
 
-  #indexHelpPanel,
-  #trendHelpPanel,
   .trend-note {
     display: none !important;
   }
