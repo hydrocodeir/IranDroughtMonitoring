@@ -223,10 +223,8 @@ function normalizeMonthInput(value) {
 
 function ensureMonthInputValue() {
   if (!dateEl) return;
-  dateEl.type = 'text';
+  dateEl.type = 'month';
   dateEl.inputMode = 'numeric';
-  dateEl.pattern = '\\d{4}-\\d{2}';
-  dateEl.placeholder = 'YYYY-MM';
   dateEl.autocomplete = 'off';
   dateEl.spellcheck = false;
   dateEl.lang = 'en-US';
@@ -950,6 +948,9 @@ function setAboutModalOpen(open) {
 
   if (state.modalOpen) {
     setTimeout(() => {
+      const dialog = aboutModalEl.querySelector('.app-modal__dialog');
+      aboutModalEl.scrollTop = 0;
+      if (dialog) dialog.scrollTop = 0;
       (aboutOkBtn || aboutCloseBtn || aboutModalEl).focus?.();
     }, 0);
   }
@@ -1671,13 +1672,21 @@ function renderOverviewFromCounts(payload) {
 
 function buildMapLegendHtml(indexName) {
   const droughtMode = isDroughtIndex(indexName);
-  const items = droughtMode ? [] : [
+  const items = droughtMode ? [
+        ['NW', 'Normal/Wet', '#86efac'],
+        ['D0', 'Abnormally Dry', '#fde047'],
+        ['D1', 'Moderate Drought', '#fbbf24'],
+        ['D2', 'Severe Drought', '#f97316'],
+        ['D3', 'Extreme Drought', '#dc2626'],
+        ['D4', 'Exceptional Drought', '#7f1d1d'],
+        ['—', 'No data', '#e5e7eb']
+      ] : [
         ['+', 'Positive values', '#2563eb'],
         ['0', 'Zero', '#9ca3af'],
         ['−', 'Negative values', '#dc2626'],
         ['—', 'No data', '#e5e7eb']
       ];
-  const title = droughtMode ? 'Trend guide' : 'Value sign guide';
+  const title = droughtMode ? 'Drought severity guide' : 'Value sign guide';
   const trendPos = droughtMode ? 'Increasing trend (wetter)' : 'Increasing trend';
   const trendNeg = droughtMode ? 'Decreasing trend (drier)' : 'Decreasing trend';
   const trendNeutral = droughtMode ? '' : '<div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>';
@@ -2415,10 +2424,17 @@ function setupEvents() {
   }
 
   if (mobileAnalysisTabBtn) {
-    mobileAnalysisTabBtn.addEventListener('click', () => {
+    mobileAnalysisTabBtn.addEventListener('click', async () => {
       setSidebarOpen(false);
       setPanelOpen(true);
       setMobileSection('analysis');
+      if (selectedFeature) {
+        const feature = findSelectedFeatureFromCurrentMap() || selectedFeature;
+        if (feature) {
+          lastPanelQueryKey = null;
+          await onRegionClick(feature);
+        }
+      }
       invalidateMapSoon();
     });
   }
@@ -2478,7 +2494,11 @@ function setupEvents() {
       }
     });
     searchEl.addEventListener('blur', () => {
-      setTimeout(() => hideSearchSuggestions(), 120);
+      const delay = isTouchLikeDevice() ? 300 : 120;
+      setTimeout(() => {
+        if (document.activeElement === searchEl && isTouchLikeDevice()) return;
+        hideSearchSuggestions();
+      }, delay);
     });
   }
 

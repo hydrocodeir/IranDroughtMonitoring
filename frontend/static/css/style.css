@@ -1213,9 +1213,11 @@ input[type="range"]:disabled {
   border: 1px solid var(--border);
   background: var(--surface-2);
   border-radius: 10px;
-  width: 30px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   padding: 0;
+  font-size: 0.7rem;
+  line-height: 1;
 }
 
 .map-legend .row-item {
@@ -1335,6 +1337,8 @@ input[type="range"]:disabled {
 
 .app-modal.open {
   display: flex;
+  align-items: flex-start;
+  overflow-y: auto;
 }
 
 .app-modal__dialog {
@@ -1345,6 +1349,7 @@ input[type="range"]:disabled {
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow);
+  margin-top: 16px;
 }
 
 .app-modal__header {
@@ -1456,6 +1461,27 @@ input[type="range"]:disabled {
     box-shadow: none;
     position: relative;
     z-index: 1250;
+  }
+
+  .search-box {
+    overflow: visible;
+    z-index: 40;
+  }
+
+  .search-suggestions {
+    position: static;
+    inset-inline: auto;
+    top: auto;
+    margin-top: 6px;
+    max-height: 38vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    z-index: 60;
+  }
+
+  .search-suggestion {
+    min-height: 44px;
+    touch-action: manipulation;
   }
 
   .insight {
