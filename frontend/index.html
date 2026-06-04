@@ -35,6 +35,9 @@
         <button id="openAbout" class="btn btn-sm btn-outline-secondary" type="button" title="About this dashboard">
           About
         </button>
+        <button id="openContact" class="btn btn-sm btn-outline-secondary" type="button" title="Contact HydroCode">
+          Contact
+        </button>
         <button id="reloadTop" class="btn btn-sm btn-primary" type="button" title="Refresh map and data">
           Refresh
         </button>
@@ -341,17 +344,29 @@
         </div>
         <div class="app-modal__body">
           <p class="mb-2">
-            This dashboard supports global drought monitoring workflows. It visualizes SPI values for station and management-level datasets, and it is inspired by <a href="https://drought.eng.uci.edu/" target="_blank" rel="noopener noreferrer">drought.eng.uci.edu</a>.
+            This dashboard supports global drought monitoring workflows by combining observational and gridded climate data into a single analysis experience for maps, time series, and trend diagnostics.
           </p>
           <ul class="clean-list">
             <li><strong>Map:</strong> hover for quick details, click for region analysis.</li>
-            <li><strong>Colors:</strong> based on drought classes (D0 to D4) and normal/wet status.</li>
+            <li><strong>Indicators:</strong> standardized drought indices and supporting hydroclimate variables are available in one interface.</li>
+            <li><strong>Colors:</strong> drought classes follow D0 to D4 alongside normal or wet conditions.</li>
             <li><strong>Performance:</strong> API requests are cached and the page updates without full reload.</li>
             <li><strong>Layout:</strong> responsive design for desktop and mobile.</li>
           </ul>
-          <p class="mb-2"><strong>Data source:</strong> precipitation data are sourced from NOAA Global Historical Climatology Network Daily (GHCN-Daily).</p>
-          <p class="mb-2"><strong>Station selection:</strong> more than 12,000 stations were selected with at most 10% missing data in the time period ending in 2025.</p>
-          <p class="mb-2"><strong>SPI method:</strong> computed with the Standardized Drought Analysis Toolbox (SDAT) framework using the references listed below.</p>
+          <hr />
+          <h6 class="mb-2">Data foundation</h6>
+          <ul class="clean-list">
+            <li><strong>GHCN-Daily:</strong> station-based precipitation records support global station drought monitoring.</li>
+            <li><strong>TerraClimate:</strong> gridded hydroclimate variables extend the dashboard with broader climate and water-balance context.</li>
+            <li><strong>Coverage:</strong> more than 12,000 stations were screened for quality, with at most 10% missing data in the selected period.</li>
+          </ul>
+          <h6 class="mb-2">Computed products</h6>
+          <ul class="clean-list">
+            <li><strong>SPI:</strong> standardized precipitation-based drought monitoring.</li>
+            <li><strong>SPEI:</strong> drought monitoring that accounts for both precipitation and atmospheric demand.</li>
+            <li><strong>SSI and companion variables:</strong> additional standardized indicators and supporting climate fields are included where available.</li>
+          </ul>
+          <p class="mb-2"><strong>Computation framework:</strong> drought indicators are derived with the Standardized Drought Analysis Toolbox (SDAT) framework, and trend summaries are reported using Mann-Kendall and Sen's slope diagnostics.</p>
           <ul class="clean-list">
             <li>Hao Z., AghaKouchak A., Nakhjiri N., Farahmand A. (2014). <em>Scientific Data</em>, 1:140001.</li>
             <li>Farahmand A., AghaKouchak A. (2015). <em>Advances in Water Resources</em>, 76, 140-145.</li>
@@ -387,11 +402,87 @@ curl "http://localhost:8000/timeseries?region_id=10001&level=station&index=preci
 curl "http://localhost:8000/kpi?region_id=10001&level=station&index=precip&date=2020-01"
           </pre>
           <div class="callout">
-            For best experience, use an up-to-date browser. On mobile, open or close panels from the header buttons.
+            This project is inspired by <a href="https://drought.eng.uci.edu/" target="_blank" rel="noopener noreferrer">drought.eng.uci.edu</a>. For the best experience, use an up-to-date browser. On mobile, switch between Map, Filters, and Analysis with the top navigation.
           </div>
         </div>
         <div class="app-modal__footer">
           <button id="aboutOk" class="btn btn-primary btn-sm" type="button">Got it</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="contactModal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="contactTitle" aria-hidden="true">
+      <div class="app-modal__dialog app-modal__dialog--compact" role="document">
+        <div class="app-modal__header">
+          <div>
+            <div class="app-modal__title" id="contactTitle">Contact HydroCode</div>
+            <div class="app-modal__subtitle">Let's talk about drought analytics, hydroclimate data, and dashboard development.</div>
+          </div>
+          <button id="contactClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="app-modal__body">
+          <div class="contact-grid">
+            <a class="contact-card" href="mailto:hydrocodeir@gmail.com">
+              <span class="contact-card__icon"><i class="bi bi-envelope-paper-heart"></i></span>
+              <span class="contact-card__meta">
+                <span class="contact-card__label">Email</span>
+                <span class="contact-card__value">hydrocodeir@gmail.com</span>
+              </span>
+            </a>
+            <a class="contact-card" href="https://t.me/hydrocode" target="_blank" rel="noopener noreferrer">
+              <span class="contact-card__icon"><i class="bi bi-telegram"></i></span>
+              <span class="contact-card__meta">
+                <span class="contact-card__label">Telegram</span>
+                <span class="contact-card__value">@hydrocode</span>
+              </span>
+            </a>
+            <a class="contact-card" href="https://www.linkedin.com/in/pooyashirazi" target="_blank" rel="noopener noreferrer">
+              <span class="contact-card__icon"><i class="bi bi-linkedin"></i></span>
+              <span class="contact-card__meta">
+                <span class="contact-card__label">LinkedIn</span>
+                <span class="contact-card__value">pooyashirazi</span>
+              </span>
+            </a>
+            <a class="contact-card" href="https://wa.me/989381009667" target="_blank" rel="noopener noreferrer">
+              <span class="contact-card__icon"><i class="bi bi-whatsapp"></i></span>
+              <span class="contact-card__meta">
+                <span class="contact-card__label">WhatsApp</span>
+                <span class="contact-card__value">0098 938 100 9667</span>
+              </span>
+            </a>
+          </div>
+          <div class="callout">
+            If you have feedback, partnership ideas, or data questions, this is the fastest way to reach us.
+          </div>
+        </div>
+        <div class="app-modal__footer">
+          <button id="contactOk" class="btn btn-primary btn-sm" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="startupNoticeModal" class="app-modal" role="dialog" aria-modal="true" aria-labelledby="startupNoticeTitle" aria-hidden="true">
+      <div class="app-modal__dialog app-modal__dialog--compact" role="document">
+        <div class="app-modal__header">
+          <div>
+            <div class="app-modal__title" id="startupNoticeTitle">Performance Notice</div>
+            <div class="app-modal__subtitle">A quick heads-up before you start exploring the dashboard.</div>
+          </div>
+          <button id="startupNoticeClose" class="icon-btn" type="button" aria-label="Close">✕</button>
+        </div>
+        <div class="app-modal__body">
+          <div class="notice-hero">
+            <div class="notice-hero__icon"><i class="bi bi-lightning-charge"></i></div>
+            <div>
+              <div class="notice-hero__title">Small server, big dataset</div>
+              <p class="mb-0">
+                This dashboard is currently running on a very small VPS to keep the project online. We have optimized it as much as possible, but some maps and analyses may still load a little slowly. Thank you for your patience.
+              </p>
+            </div>
+          </div>
+        </div>
+        <div class="app-modal__footer">
+          <button id="startupNoticeOk" class="btn btn-primary btn-sm" type="button">Continue</button>
         </div>
       </div>
     </div>

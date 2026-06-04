@@ -250,6 +250,13 @@ const aboutOpenBtn = document.getElementById('openAbout');
 const aboutModalEl = document.getElementById('aboutModal');
 const aboutCloseBtn = document.getElementById('aboutClose');
 const aboutOkBtn = document.getElementById('aboutOk');
+const contactOpenBtn = document.getElementById('openContact');
+const contactModalEl = document.getElementById('contactModal');
+const contactCloseBtn = document.getElementById('contactClose');
+const contactOkBtn = document.getElementById('contactOk');
+const startupNoticeModalEl = document.getElementById('startupNoticeModal');
+const startupNoticeCloseBtn = document.getElementById('startupNoticeClose');
+const startupNoticeOkBtn = document.getElementById('startupNoticeOk');
 
 const headerEl = document.querySelector('.app-header');
 const timelineControls = [
@@ -891,6 +898,7 @@ const state = {
   sidebarOpen: false,
   panelOpen: false,
   modalOpen: false,
+  activeModalId: '',
   mobileSection: 'map',
 };
 
@@ -939,31 +947,58 @@ function setSidebarOpen(open) {
   updateBackdrop();
 }
 
-function setAboutModalOpen(open) {
-  if (!aboutModalEl) return;
-  state.modalOpen = Boolean(open);
-  aboutModalEl.classList.toggle('open', state.modalOpen);
-  aboutModalEl.setAttribute('aria-hidden', String(!state.modalOpen));
+function scrollModalToTop(modalEl) {
+  if (!modalEl) return;
+  const dialog = modalEl.querySelector('.app-modal__dialog');
+  modalEl.scrollTop = 0;
+  if (dialog) {
+    dialog.scrollTop = 0;
+    dialog.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+  }
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+  window.scrollTo?.(0, 0);
+}
+
+function setModalOpen(modalEl, open, focusTarget = null) {
+  if (!modalEl) return;
+  const nextOpen = Boolean(open);
+  [aboutModalEl, contactModalEl, startupNoticeModalEl].forEach((candidate) => {
+    if (!candidate || candidate === modalEl) return;
+    candidate.classList.remove('open');
+    candidate.setAttribute('aria-hidden', 'true');
+  });
+  state.modalOpen = nextOpen;
+  state.activeModalId = nextOpen ? (modalEl.id || '') : '';
+  modalEl.classList.toggle('open', nextOpen);
+  modalEl.setAttribute('aria-hidden', String(!nextOpen));
   updateBackdrop();
 
-  if (state.modalOpen) {
-    const scrollModalToTop = () => {
-      const dialog = aboutModalEl.querySelector('.app-modal__dialog');
-      aboutModalEl.scrollTop = 0;
-      if (dialog) {
-        dialog.scrollTop = 0;
-        dialog.scrollIntoView?.({ block: 'start', inline: 'nearest' });
-      }
-      document.documentElement.scrollTop = 0;
-      document.body.scrollTop = 0;
-      window.scrollTo?.(0, 0);
-    };
-    scrollModalToTop();
+  if (nextOpen) {
+    scrollModalToTop(modalEl);
     setTimeout(() => {
-      scrollModalToTop();
-      (aboutOkBtn || aboutCloseBtn || aboutModalEl).focus?.();
+      scrollModalToTop(modalEl);
+      (focusTarget || modalEl).focus?.();
     }, 0);
   }
+}
+
+function closeActiveModal() {
+  if (state.activeModalId === 'aboutModal') setModalOpen(aboutModalEl, false);
+  else if (state.activeModalId === 'contactModal') setModalOpen(contactModalEl, false);
+  else if (state.activeModalId === 'startupNoticeModal') setModalOpen(startupNoticeModalEl, false);
+}
+
+function setAboutModalOpen(open) {
+  setModalOpen(aboutModalEl, open, aboutOkBtn || aboutCloseBtn || aboutModalEl);
+}
+
+function setContactModalOpen(open) {
+  setModalOpen(contactModalEl, open, contactOkBtn || contactCloseBtn || contactModalEl);
+}
+
+function setStartupNoticeOpen(open) {
+  setModalOpen(startupNoticeModalEl, open, startupNoticeOkBtn || startupNoticeCloseBtn || startupNoticeModalEl);
 }
 
 function updateHeaderHeightVar() {
@@ -1696,7 +1731,7 @@ function buildMapLegendHtml(indexName) {
         ['−', 'Negative values', '#dc2626'],
         ['—', 'No data', '#e5e7eb']
       ];
-  const title = droughtMode ? '' : '';
+  const title = droughtMode ? 'Drought severity guide' : 'Value sign guide';
   const trendPos = droughtMode ? 'Increasing trend (wetter)' : 'Increasing trend';
   const trendNeg = droughtMode ? 'Decreasing trend (drier)' : 'Decreasing trend';
   const trendNeutral = droughtMode ? '' : '<div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>';
@@ -2458,7 +2493,7 @@ function setupEvents() {
       setSidebarOpen(false);
       setPanelOpen(false);
       setMobileSection('map');
-      setAboutModalOpen(false);
+      closeActiveModal();
       invalidateMapSoon();
     });
   }
@@ -2467,10 +2502,15 @@ function setupEvents() {
   if (aboutOpenBtn) aboutOpenBtn.addEventListener('click', () => setAboutModalOpen(true));
   if (aboutCloseBtn) aboutCloseBtn.addEventListener('click', () => setAboutModalOpen(false));
   if (aboutOkBtn) aboutOkBtn.addEventListener('click', () => setAboutModalOpen(false));
+  if (contactOpenBtn) contactOpenBtn.addEventListener('click', () => setContactModalOpen(true));
+  if (contactCloseBtn) contactCloseBtn.addEventListener('click', () => setContactModalOpen(false));
+  if (contactOkBtn) contactOkBtn.addEventListener('click', () => setContactModalOpen(false));
+  if (startupNoticeCloseBtn) startupNoticeCloseBtn.addEventListener('click', () => setStartupNoticeOpen(false));
+  if (startupNoticeOkBtn) startupNoticeOkBtn.addEventListener('click', () => setStartupNoticeOpen(false));
 
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
-    if (state.modalOpen) { setAboutModalOpen(false); return; }
+    if (state.modalOpen) { closeActiveModal(); return; }
     if (isMobileViewport() && state.sidebarOpen) { setSidebarOpen(false); setMobileSection('map'); return; }
     if (isMobileViewport() && state.panelOpen) { lastPanelQueryKey = null; setPanelOpen(false); setMobileSection('map'); return; }
   });
@@ -2646,6 +2686,9 @@ async function initApp() {
   appIsReady = true;
   await Promise.all([loadMap()]);
   invalidateMapSoon();
+  setTimeout(() => {
+    setStartupNoticeOpen(true);
+  }, 220);
 }
 
 initApp();
