@@ -1448,7 +1448,6 @@ input[type="range"]:disabled {
     width: 100%;
     max-width: 100%;
     min-height: calc(100dvh - var(--app-header-h) - 58px - 12px);
-    overflow: visible;
   }
 
   .sidebar,
@@ -1457,6 +1456,12 @@ input[type="range"]:disabled {
     box-shadow: none;
     position: relative;
     z-index: 1250;
+  }
+
+  .insight {
+    height: calc(100dvh - var(--app-header-h) - 58px - 12px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .map-col__stack {
@@ -1489,6 +1494,11 @@ input[type="range"]:disabled {
   .form-hint,
   .ui-card__hint {
     display: none;
+  }
+
+  #panelCountry {
+    display: block !important;
+    margin-top: 2px;
   }
 
   .map-toolbar {

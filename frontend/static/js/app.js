@@ -547,9 +547,12 @@ function clusterSignIcon(count, value) {
 
 function pointRadiusForFeature(feature, index, climateRange) {
   const hasValue = feature?.properties?.has_value !== false;
-  if (!hasValue) return 6;
-  if (!isDroughtIndex(index)) return climatePointRadius(Math.abs(Number(feature?.properties?.value)), climateRange);
-  return 7;
+  const base = !hasValue
+    ? 6
+    : (!isDroughtIndex(index)
+      ? climatePointRadius(Math.abs(Number(feature?.properties?.value)), climateRange)
+      : 7);
+  return isTouchLikeDevice() ? Math.max(base + 4, 12) : base;
 }
 
 function pointStyleForFeature(feature, index, climateRange) {
@@ -578,18 +581,32 @@ function buildPointMarker(feature, index) {
   if (coords.length < 2) return null;
   const latlng = L.latLng(Number(coords[1]), Number(coords[0]));
   const marker = L.circleMarker(latlng, pointStyleForFeature(feature, index, currentMapClimateRange));
-  marker.on('mouseover', () => {
-    if (searchQuery && !featureMatchesSearch(feature)) return;
-    setHoverInfo(feature, index);
-  });
-  marker.on('mouseout', () => {
-    if (searchQuery && !featureMatchesSearch(feature)) return;
-    setHoverInfo(null);
-  });
+  let touchActivated = false;
+  if (!isTouchLikeDevice()) {
+    marker.on('mouseover', () => {
+      if (searchQuery && !featureMatchesSearch(feature)) return;
+      setHoverInfo(feature, index);
+    });
+    marker.on('mouseout', () => {
+      if (searchQuery && !featureMatchesSearch(feature)) return;
+      setHoverInfo(null);
+    });
+  }
   marker.on('click', () => {
+    if (touchActivated) return;
     if (searchQuery && !featureMatchesSearch(feature)) return;
     onRegionClick(feature);
   });
+  if (isTouchLikeDevice()) {
+    marker.on('touchend', (e) => {
+      if (searchQuery && !featureMatchesSearch(feature)) return;
+      e?.originalEvent?.preventDefault?.();
+      e?.originalEvent?.stopPropagation?.();
+      touchActivated = true;
+      setTimeout(() => { touchActivated = false; }, 350);
+      onRegionClick(feature);
+    });
+  }
   if (isSelectedFeature(feature) && marker.bringToFront) {
     marker.on('add', () => marker.bringToFront());
   }
@@ -849,6 +866,27 @@ function setPanelOpen(open) {
 
 function isMobileViewport() {
   return window.matchMedia('(max-width: 991.98px)').matches;
+}
+
+function isTouchLikeDevice() {
+  return window.matchMedia('(pointer: coarse)').matches || window.matchMedia('(hover: none)').matches || Boolean(L?.Browser?.touch);
+}
+
+function setTimelineButtonLabels() {
+  const mobile = isMobileViewport();
+  const labels = mobile
+    ? { toEnd: '>>', nextMonth: '>', prevMonth: '<', toStart: '<<' }
+    : { toEnd: 'Latest', nextMonth: 'Next', prevMonth: 'Prev', toStart: 'Start' };
+  const map = [
+    ['toEnd', labels.toEnd],
+    ['nextMonth', labels.nextMonth],
+    ['prevMonth', labels.prevMonth],
+    ['toStart', labels.toStart],
+  ];
+  map.forEach(([id, label]) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = label;
+  });
 }
 
 const state = {
@@ -1633,25 +1671,16 @@ function renderOverviewFromCounts(payload) {
 
 function buildMapLegendHtml(indexName) {
   const droughtMode = isDroughtIndex(indexName);
-  const items = droughtMode
-    ? [
-        ['NW', 'Normal/Wet', '#86efac'],
-        ['D0', 'Abnormally Dry', '#fde047'],
-        ['D1', 'Moderate Drought', '#fbbf24'],
-        ['D2', 'Severe Drought', '#f97316'],
-        ['D3', 'Extreme Drought', '#dc2626'],
-        ['D4', 'Exceptional Drought', '#7f1d1d'],
-        ['—', 'No data', '#e5e7eb']
-      ]
-    : [
+  const items = droughtMode ? [] : [
         ['+', 'Positive values', '#2563eb'],
         ['0', 'Zero', '#9ca3af'],
         ['−', 'Negative values', '#dc2626'],
         ['—', 'No data', '#e5e7eb']
       ];
-  const title = droughtMode ? 'Drought severity guide' : 'Value sign guide';
+  const title = droughtMode ? 'Trend guide' : 'Value sign guide';
   const trendPos = droughtMode ? 'Increasing trend (wetter)' : 'Increasing trend';
   const trendNeg = droughtMode ? 'Decreasing trend (drier)' : 'Decreasing trend';
+  const trendNeutral = droughtMode ? '' : '<div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>';
 
   return `
       <div class="head">
@@ -1660,11 +1689,9 @@ function buildMapLegendHtml(indexName) {
       </div>
       <div class="legend-body" id="legendBody">
         ${items.map(i => `<div class="row-item"><span class="sw" style="background:${i[2]}"></span><span class="short">${i[0]}</span><span class="label">${i[1]}</span></div>`).join('')}
-        <div class="legend-sep"></div>
-        <div class="legend-subtitle">Trend guide (full period)</div>
         <div class="row-item"><span class="trend-ic trend-pos">↑</span><span id="legendTrendInc" class="label">${trendPos}</span></div>
         <div class="row-item"><span class="trend-ic trend-neg">↓</span><span id="legendTrendDec" class="label">${trendNeg}</span></div>
-        <div class="row-item"><span class="trend-ic trend-neu">—</span><span class="label">No significant trend</span></div>
+        ${trendNeutral}
       </div>`;
 }
 
@@ -1778,18 +1805,20 @@ function buildPolygonLayer(features, index) {
   return L.geoJSON({ type: 'FeatureCollection', features }, {
     style: defaultPolyStyle,
     onEachFeature: (feature, layer) => {
-      layer.on('mouseover', () => {
-        if (searchQuery && !featureMatchesSearch(feature)) return;
-        if (layer.setStyle) layer.setStyle(hoverPolyStyle);
-        if (layer.bringToFront) layer.bringToFront();
-        setHoverInfo(feature, index);
-      });
+      if (!isTouchLikeDevice()) {
+        layer.on('mouseover', () => {
+          if (searchQuery && !featureMatchesSearch(feature)) return;
+          if (layer.setStyle) layer.setStyle(hoverPolyStyle);
+          if (layer.bringToFront) layer.bringToFront();
+          setHoverInfo(feature, index);
+        });
 
-      layer.on('mouseout', () => {
-        if (searchQuery && !featureMatchesSearch(feature)) return;
-        if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
-        setHoverInfo(null);
-      });
+        layer.on('mouseout', () => {
+          if (searchQuery && !featureMatchesSearch(feature)) return;
+          if (layer.setStyle) layer.setStyle(defaultPolyStyle(feature));
+          setHoverInfo(null);
+        });
+      }
 
       layer.on('click', () => {
         if (searchQuery && !featureMatchesSearch(feature)) return;
@@ -2527,6 +2556,7 @@ function setupEvents() {
   // Responsive housekeeping
   window.addEventListener('resize', () => {
     updateHeaderHeightVar();
+    setTimelineButtonLabels();
     if (overviewChart) overviewChart.resize();
     invalidateMapSoon();
 
@@ -2557,6 +2587,7 @@ async function initApp() {
   setupEvents();
   setupMapResizeObserver();
   updateHeaderHeightVar();
+  setTimelineButtonLabels();
   syncMobileWorkspaceUI();
 
   try {
