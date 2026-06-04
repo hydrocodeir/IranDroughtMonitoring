@@ -41,12 +41,19 @@
       </div>
     </header>
 
+    <div class="mobile-nav d-lg-none" id="mobileNav" aria-label="Mobile workspace switcher">
+      <button id="mobileMapTab" class="btn btn-sm btn-primary" type="button">Map</button>
+      <button id="mobileFiltersTab" class="btn btn-sm btn-outline-primary" type="button">Filters</button>
+      <button id="mobileAnalysisTab" class="btn btn-sm btn-outline-primary" type="button">Analysis</button>
+    </div>
+
     <div class="app-body" id="mainContent" role="main">
       <aside id="sidebar" class="sidebar" aria-label="Filters">
         <div class="stack">
           <section class="ui-card">
             <div class="ui-card__header">
               <div class="ui-card__title"><i class="bi bi-funnel"></i><span>Filters</span></div>
+              <button id="closeSidebar" class="icon-btn d-lg-none" type="button" title="Back to map">✕</button>
             </div>
             <div class="ui-card__body">
               <label class="form-label" for="search">Search station</label>

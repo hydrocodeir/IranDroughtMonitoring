@@ -151,6 +151,7 @@ let searchQuery = '';
 let showAllStationMarkers = false;
 let currentSearchSuggestions = [];
 let activeSearchSuggestionIndex = -1;
+let suggestionPointerActivated = false;
 
 // Cached panel series for the currently selected feature (used to update chart
 // markers when the global map month changes without reloading the whole panel).
@@ -168,6 +169,7 @@ const overviewCache = new Map();
 const levelEl = document.getElementById('level');
 const indexEl = document.getElementById('index');
 const dateEl = document.getElementById('date');
+const appShellEl = document.getElementById('appShell');
 const panelEl = document.getElementById('insightPanel');
 const sidebarEl = document.getElementById('sidebar');
 const closeBtn = document.getElementById('closePanel');
@@ -203,6 +205,10 @@ const hoverSeverityEl = document.getElementById('hoverSeverity');
 const hoverTrendEl = document.getElementById('hoverTrend');
 const markerModeToggleEl = document.getElementById('markerModeToggle');
 const searchSuggestionsEl = document.getElementById('searchSuggestions');
+const closeSidebarBtn = document.getElementById('closeSidebar');
+const mobileMapTabBtn = document.getElementById('mobileMapTab');
+const mobileFiltersTabBtn = document.getElementById('mobileFiltersTab');
+const mobileAnalysisTabBtn = document.getElementById('mobileAnalysisTab');
 
 const MONTH_RE = /^\d{4}-\d{2}$/;
 
@@ -413,6 +419,7 @@ function hideSearchSuggestions() {
   searchSuggestionsEl.innerHTML = '';
   currentSearchSuggestions = [];
   activeSearchSuggestionIndex = -1;
+  suggestionPointerActivated = false;
 }
 
 function renderSearchSuggestions(query, preferredIndex = 0) {
@@ -441,9 +448,21 @@ function renderSearchSuggestions(query, preferredIndex = 0) {
       activeSearchSuggestionIndex = index;
       renderSearchSuggestions(query, index);
     });
-    btn.addEventListener('click', () => {
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      suggestionPointerActivated = true;
       const item = currentSearchSuggestions[index];
       if (item) selectSearchSuggestion(item.feature);
+    });
+    btn.addEventListener('click', () => {
+      if (suggestionPointerActivated) {
+        suggestionPointerActivated = false;
+        return;
+      }
+      const item = currentSearchSuggestions[index];
+      if (item) selectSearchSuggestion(item.feature);
+      suggestionPointerActivated = false;
     });
   });
 }
@@ -813,6 +832,8 @@ function setPanelOpen(open) {
   if (togglePanelBtn) {
     togglePanelBtn.setAttribute('aria-expanded', String(state.panelOpen));
   }
+  if (isMobileViewport() && state.panelOpen) setMobileSection('analysis');
+  if (isMobileViewport() && !state.panelOpen && state.mobileSection === 'analysis') setMobileSection('map');
   updateBackdrop();
 
    // Ensure charts reflow correctly after drawer transition.
@@ -830,7 +851,32 @@ const state = {
   sidebarOpen: false,
   panelOpen: false,
   modalOpen: false,
+  mobileSection: 'map',
 };
+
+function syncMobileWorkspaceUI() {
+  if (!appShellEl) return;
+  appShellEl.dataset.mobileSection = state.mobileSection;
+  const active = state.mobileSection;
+  if (mobileMapTabBtn) {
+    mobileMapTabBtn.classList.toggle('btn-primary', active === 'map');
+    mobileMapTabBtn.classList.toggle('btn-outline-primary', active !== 'map');
+  }
+  if (mobileFiltersTabBtn) {
+    mobileFiltersTabBtn.classList.toggle('btn-primary', active === 'filters');
+    mobileFiltersTabBtn.classList.toggle('btn-outline-primary', active !== 'filters');
+  }
+  if (mobileAnalysisTabBtn) {
+    mobileAnalysisTabBtn.classList.toggle('btn-primary', active === 'analysis');
+    mobileAnalysisTabBtn.classList.toggle('btn-outline-primary', active !== 'analysis');
+  }
+}
+
+function setMobileSection(section) {
+  const next = ['map', 'filters', 'analysis'].includes(section) ? section : 'map';
+  state.mobileSection = next;
+  syncMobileWorkspaceUI();
+}
 
 function updateBackdrop() {
   if (!modalBackdropEl) return;
@@ -847,6 +893,8 @@ function setSidebarOpen(open) {
   if (toggleSidebarBtn) {
     toggleSidebarBtn.setAttribute('aria-expanded', String(state.sidebarOpen));
   }
+  if (isMobileViewport() && state.sidebarOpen) setMobileSection('filters');
+  if (isMobileViewport() && !state.sidebarOpen && state.mobileSection === 'filters') setMobileSection('map');
   updateBackdrop();
 }
 
@@ -2250,6 +2298,7 @@ function setupEvents() {
     toggleSidebarBtn.addEventListener('click', () => {
       setSidebarOpen(!state.sidebarOpen);
       setPanelOpen(false);
+      if (isMobileViewport()) setMobileSection(state.sidebarOpen ? 'filters' : 'map');
       invalidateMapSoon();
     });
   }
@@ -2257,6 +2306,44 @@ function setupEvents() {
     togglePanelBtn.addEventListener('click', () => {
       setPanelOpen(!state.panelOpen);
       setSidebarOpen(false);
+      if (isMobileViewport()) setMobileSection(state.panelOpen ? 'analysis' : 'map');
+      invalidateMapSoon();
+    });
+  }
+
+  if (closeSidebarBtn) {
+    closeSidebarBtn.addEventListener('click', () => {
+      lastPanelQueryKey = null;
+      setSidebarOpen(false);
+      setMobileSection('map');
+      invalidateMapSoon();
+    });
+  }
+
+  if (mobileMapTabBtn) {
+    mobileMapTabBtn.addEventListener('click', () => {
+      lastPanelQueryKey = null;
+      setSidebarOpen(false);
+      setPanelOpen(false);
+      setMobileSection('map');
+      invalidateMapSoon();
+    });
+  }
+
+  if (mobileFiltersTabBtn) {
+    mobileFiltersTabBtn.addEventListener('click', () => {
+      setPanelOpen(false);
+      setSidebarOpen(true);
+      setMobileSection('filters');
+      invalidateMapSoon();
+    });
+  }
+
+  if (mobileAnalysisTabBtn) {
+    mobileAnalysisTabBtn.addEventListener('click', () => {
+      setSidebarOpen(false);
+      setPanelOpen(true);
+      setMobileSection('analysis');
       invalidateMapSoon();
     });
   }
@@ -2266,6 +2353,7 @@ function setupEvents() {
     modalBackdropEl.addEventListener('click', () => {
       setSidebarOpen(false);
       setPanelOpen(false);
+      setMobileSection('map');
       setAboutModalOpen(false);
       invalidateMapSoon();
     });
@@ -2279,8 +2367,8 @@ function setupEvents() {
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
     if (state.modalOpen) { setAboutModalOpen(false); return; }
-    if (isMobileViewport() && state.sidebarOpen) { setSidebarOpen(false); return; }
-    if (isMobileViewport() && state.panelOpen) { lastPanelQueryKey = null; setPanelOpen(false); return; }
+    if (isMobileViewport() && state.sidebarOpen) { setSidebarOpen(false); setMobileSection('map'); return; }
+    if (isMobileViewport() && state.panelOpen) { lastPanelQueryKey = null; setPanelOpen(false); setMobileSection('map'); return; }
   });
 
   const searchEl = document.getElementById('search');
@@ -2390,6 +2478,7 @@ function setupEvents() {
     if (!isMobileViewport()) {
       state.sidebarOpen = false;
       state.panelOpen = false;
+      setMobileSection('map');
       sidebarEl?.classList.remove('open');
       panelEl?.classList.remove('open');
       sidebarEl?.setAttribute('aria-hidden', 'false');
@@ -2399,6 +2488,7 @@ function setupEvents() {
       // On mobile, keep closed unless explicitly opened
       setSidebarOpen(state.sidebarOpen);
       setPanelOpen(state.panelOpen);
+      syncMobileWorkspaceUI();
     }
   });
 }
@@ -2410,6 +2500,7 @@ async function initApp() {
   addMapLegend();
   setupEvents();
   updateHeaderHeightVar();
+  syncMobileWorkspaceUI();
 
   try {
     await loadDatasetsList();
