@@ -135,6 +135,9 @@ let lastChartRenderKey = null;
 let chartResizeBound = false;
 let appIsReady = false;
 let hasInitializedIndexSelection = false;
+let suppressNextMapAutoSelect = false;
+let mapResizeObserver = null;
+let chartZoomLast5Years = false;
 
 // Global (map) month bounds for the currently selected dataset layer.
 let globalMinMonth = null;
@@ -186,6 +189,7 @@ const stationMonthLabelEl = document.getElementById('stationMonthLabel');
 const panelCountryEl = document.getElementById('panelCountry');
 const syncToMapBtn = document.getElementById('syncToMap');
 const syncToPanelBtn = document.getElementById('syncToPanel');
+const chartZoomToggleEl = document.getElementById('chartZoomToggle');
 const clearSearchBtn = document.getElementById('clearSearch');
 const valueBoxEl = document.getElementById('valueBox');
 const modalBackdropEl = document.getElementById('modalBackdrop');
@@ -876,6 +880,7 @@ function setMobileSection(section) {
   const next = ['map', 'filters', 'analysis'].includes(section) ? section : 'map';
   state.mobileSection = next;
   syncMobileWorkspaceUI();
+  if (isMobileViewport() && next === 'map') invalidateMapSoon();
 }
 
 function updateBackdrop() {
@@ -922,6 +927,16 @@ function invalidateMapSoon() {
   // Helps Leaflet reflow after resize / drawer transitions
   setTimeout(() => map.invalidateSize(), 50);
   setTimeout(() => map.invalidateSize(), 280);
+}
+
+function setupMapResizeObserver() {
+  if (mapResizeObserver || typeof ResizeObserver === 'undefined') return;
+  const target = document.getElementById('map');
+  if (!target) return;
+  mapResizeObserver = new ResizeObserver(() => {
+    invalidateMapSoon();
+  });
+  mapResizeObserver.observe(target);
 }
 
 function applySeverityStyle(sev) {
@@ -1246,7 +1261,7 @@ function renderChart(ts, indexLabel, mapMonth, panelMonth) {
     { xAxis: panelDate, name: 'Panel' }
   ];
 
-  const initialZoom = getInitialChartZoom(parsedData, 5);
+  const initialZoom = chartZoomLast5Years ? getInitialChartZoom(parsedData, 5) : null;
   // No separate timeline series; we use vertical markLines for both dates.
 
 
@@ -1895,6 +1910,23 @@ function applySearchFilter() {
   renderCurrentMapFeatures();
 }
 
+function clearSelectedFeatureState() {
+  selectedFeature = null;
+  currentPanelSeries = [];
+  currentPanelFeatureName = null;
+  stationMinInt = null;
+  stationMaxInt = null;
+  stationMonthInt = null;
+  if (stationSliderEl) stationSliderEl.disabled = true;
+  if (stationRangeLabelEl) stationRangeLabelEl.textContent = '—';
+  if (stationMonthLabelEl) {
+    stationMonthLabelEl.textContent = '—';
+    delete stationMonthLabelEl.dataset.month;
+  }
+  setHoverInfo(null);
+  syncSelectedFeatureOverlay();
+}
+
 async function updatePanelForMonth(newMonth) {
   if (!selectedFeature || stationMinInt == null || stationMaxInt == null) return;
   const monthInt = clampInt(monthToInt(newMonth), stationMinInt, stationMaxInt);
@@ -1939,7 +1971,10 @@ async function updatePanelForMonth(newMonth) {
   togglePanelSpinner(false);
 }
 
-async function loadMap() {
+async function loadMap(options = {}) {
+  const autoSelectRequested = options.autoSelect !== false;
+  const autoSelect = autoSelectRequested && !suppressNextMapAutoSelect;
+  if (autoSelectRequested) suppressNextMapAutoSelect = false;
   if (!appIsReady) return;
   const level = levelEl.value;
   const index = indexEl.value;
@@ -1984,7 +2019,7 @@ async function loadMap() {
   renderCurrentMapFeatures();
 
   // Initial default selection: choose one feature on first page load.
-  if (!selectedFeature && latestMapFeatures.length) {
+  if (autoSelect && !selectedFeature && latestMapFeatures.length) {
     const defaultFeature = latestMapFeatures.find((f) => f?.properties?.has_value !== false) || latestMapFeatures[0];
     if (defaultFeature) {
       await onRegionClick(defaultFeature);
@@ -2165,6 +2200,18 @@ function setupEvents() {
     trendNoteEl.dataset.defaultText = trendNoteEl.textContent || '—';
   }
 
+  if (chartZoomToggleEl) {
+    chartZoomToggleEl.checked = false;
+    chartZoomLast5Years = false;
+    chartZoomToggleEl.addEventListener('change', () => {
+      chartZoomLast5Years = chartZoomToggleEl.checked;
+      if (panelEl.classList.contains('open') && selectedFeature && currentPanelSeries.length) {
+        const panelMonth = stationMonthInt != null ? intToMonth(stationMonthInt) : getDateValue();
+        renderChart(currentPanelSeries, indexEl.value, getDateValue(), panelMonth);
+      }
+    });
+  }
+
   document.getElementById('reloadTop').addEventListener('click', () => {
     lastPanelQueryKey = null;
     mapDataCache.clear();
@@ -2178,7 +2225,6 @@ function setupEvents() {
   indexEl.addEventListener('change', async () => {
     lastPanelQueryKey = null;
     await onDateChanged();
-    // Index affects the panel series; reload it if open.
     if (panelEl.classList.contains('open') && selectedFeature) {
       await onRegionClick(findSelectedFeatureFromCurrentMap());
     }
@@ -2408,11 +2454,21 @@ function setupEvents() {
   }
 
   if (clearSearchBtn) {
-    clearSearchBtn.addEventListener('click', () => {
+    clearSearchBtn.addEventListener('click', async () => {
       searchQuery = '';
       if (searchEl) searchEl.value = '';
       hideSearchSuggestions();
+      showAllStationMarkers = false;
+      if (markerModeToggleEl) markerModeToggleEl.checked = false;
+      lastPanelQueryKey = null;
+      clearSelectedFeatureState();
+      setPanelOpen(false);
+      suppressNextMapAutoSelect = true;
+      setTimeout(() => { suppressNextMapAutoSelect = false; }, 1500);
+      map.setView(DEFAULT_VIEW.center, DEFAULT_VIEW.zoom);
       applySearchFilter();
+      await loadMap({ autoSelect: false });
+      invalidateMapSoon();
     });
   }
 
@@ -2499,6 +2555,7 @@ async function initApp() {
   populateIndexOptions();
   addMapLegend();
   setupEvents();
+  setupMapResizeObserver();
   updateHeaderHeightVar();
   syncMobileWorkspaceUI();
 
@@ -2519,6 +2576,7 @@ async function initApp() {
   updateSubtitles();
   appIsReady = true;
   await Promise.all([loadMap()]);
+  invalidateMapSoon();
 }
 
 initApp();

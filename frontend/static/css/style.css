@@ -1403,7 +1403,7 @@ input[type="range"]:disabled {
     display: flex;
     position: sticky;
     top: var(--app-header-h);
-    z-index: 1190;
+    z-index: 1260;
     gap: 8px;
     padding: 10px 12px 8px;
     background: rgba(245, 247, 251, 0.96);
@@ -1456,14 +1456,26 @@ input[type="range"]:disabled {
     border-radius: 0;
     box-shadow: none;
     position: relative;
+    z-index: 1250;
   }
 
   .map-col__stack {
     height: auto;
+    min-height: 0;
   }
 
   .map-card {
-    min-height: calc(100dvh - var(--app-header-h) - 58px - 140px);
+    flex: none;
+    height: clamp(320px, 52dvh, 520px);
+    min-height: 320px;
+  }
+
+  .map-card__body {
+    min-height: 0;
+  }
+
+  #map {
+    min-height: 320px;
   }
 
   .ui-card__body {
